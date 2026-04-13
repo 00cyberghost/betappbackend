@@ -27,6 +27,11 @@ const mainNavItems: NavItem[] = [
         href: '/dashboard/predictions',
         icon: MessageSquareText,
     },
+    {
+        title: 'Notifications',
+        href: '/dashboard/notifications',
+        icon: MessageSquareText,
+    },
 ];
 
 const footerNavItems: NavItem[] = [

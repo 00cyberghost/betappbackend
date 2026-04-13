@@ -1,22 +1,58 @@
 import { useForm } from '@inertiajs/react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-type LookupItem = {
+type CountryItem = {
+    name: string | null;
+    code?: string | null;
+    flag?: string | null;
+};
+
+type LeagueItem = {
     id?: number | null;
     name: string | null;
+    logo?: string | null;
     country?: string | null;
-    code?: string | null;
+    country_code?: string | null;
     season?: number | null;
+};
+
+type FixtureItem = {
+    id?: number | null;
+    label: string;
+    date?: string | null;
+    status?: string | null;
+    league?: {
+        id?: number | null;
+        name?: string | null;
+        logo?: string | null;
+        country?: string | null;
+        season?: number | null;
+    };
+    teams?: {
+        home?: { id?: number | null; name?: string | null; logo?: string | null };
+        away?: { id?: number | null; name?: string | null; logo?: string | null };
+    };
+};
+
+type TipItem = {
+    id?: number | null;
+    prediction_type: string;
+    label: string;
+    value: string;
+    description?: string | null;
 };
 
 type PredictionFormValues = {
     fixture_id: number | null;
     league_id: number | null;
     league_name: string;
+    league_logo: string;
     country_name: string;
+    country_code: string;
     home_team_id: number | null;
     home_team_name: string;
     home_team_logo: string;
@@ -26,6 +62,8 @@ type PredictionFormValues = {
     match_starts_at: string;
     prediction_type: string;
     prediction_value: string;
+    predicted_score_home: number | null;
+    predicted_score_away: number | null;
     probability: number | null;
     odds: number | null;
     analysis: string;
@@ -39,8 +77,9 @@ type Props = {
     action: string;
     method: 'post' | 'put';
     lookup: {
-        countries: LookupItem[];
-        leagues: LookupItem[];
+        countries: CountryItem[];
+        leagues: LeagueItem[];
+        tips: TipItem[];
         apiConfigured: boolean;
         message?: string;
     };
@@ -51,6 +90,162 @@ type Props = {
 
 export function PredictionForm({ action, method, lookup, initialValues, submitLabel, categories }: Props) {
     const form = useForm(initialValues);
+    const [countryQuery, setCountryQuery] = useState(initialValues.country_name);
+    const [leagueQuery, setLeagueQuery] = useState(initialValues.league_name);
+    const [fixtureQuery, setFixtureQuery] = useState('');
+    const [leagueOptions, setLeagueOptions] = useState<LeagueItem[]>(lookup.leagues ?? []);
+    const [fixtureOptions, setFixtureOptions] = useState<FixtureItem[]>([]);
+
+    const countries = useMemo(() => lookup.countries ?? [], [lookup.countries]);
+    const tips = useMemo(() => lookup.tips ?? [], [lookup.tips]);
+    const predictionTypes = useMemo(
+        () => Array.from(new Set(tips.map((item) => item.prediction_type))).sort((left, right) => left.localeCompare(right)),
+        [tips]
+    );
+    const predictionValueOptions = useMemo(
+        () => tips.filter((item) => item.prediction_type === form.data.prediction_type),
+        [tips, form.data.prediction_type]
+    );
+
+    useEffect(() => {
+        const country = countries.find((item) => item.name === countryQuery);
+
+        if (!country) {
+            form.setData('country_name', countryQuery);
+            form.setData('country_code', '');
+
+            return;
+        }
+
+        form.setData('country_name', country.name ?? '');
+        form.setData('country_code', country.code ?? '');
+    }, [countries, countryQuery]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadLeagues = async () => {
+            const params = new URLSearchParams();
+
+            if (form.data.country_code) {
+                params.set('code', form.data.country_code);
+            } else if (leagueQuery.trim() !== '') {
+                params.set('search', leagueQuery.trim());
+            } else {
+                setLeagueOptions([]);
+
+                return;
+            }
+
+            const response = await fetch(`/api/football/leagues?${params.toString()}`, {
+                headers: { Accept: 'application/json' },
+            });
+            const payload = await response.json();
+
+            if (!cancelled) {
+                setLeagueOptions(payload.data ?? []);
+            }
+        };
+
+        void loadLeagues();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [form.data.country_code, leagueQuery]);
+
+    useEffect(() => {
+        const league = leagueOptions.find((item) => item.name === leagueQuery);
+
+        if (!league) {
+            form.setData('league_name', leagueQuery);
+
+            return;
+        }
+
+        form.setData('league_id', league.id ? Number(league.id) : null);
+        form.setData('league_name', league.name ?? '');
+        form.setData('league_logo', league.logo ?? '');
+        form.setData('country_name', league.country ?? form.data.country_name);
+        form.setData('country_code', league.country_code ?? form.data.country_code);
+    }, [leagueOptions, leagueQuery]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadFixtures = async () => {
+            if (!form.data.league_id || !form.data.match_starts_at) {
+                setFixtureOptions([]);
+
+                return;
+            }
+
+            const params = new URLSearchParams({
+                league: String(form.data.league_id),
+                date: form.data.match_starts_at,
+            });
+
+            const season =
+                form.data.league_id
+                    ? leagueOptions.find((item) => item.id === form.data.league_id)?.season
+                    : null;
+
+            if (season) {
+                params.set('season', String(season));
+            }
+
+            const response = await fetch(`/api/football/fixtures?${params.toString()}`, {
+                headers: { Accept: 'application/json' },
+            });
+            const payload = await response.json();
+
+            if (!cancelled) {
+                setFixtureOptions(payload.data ?? []);
+            }
+        };
+
+        void loadFixtures();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [form.data.league_id, form.data.match_starts_at, leagueOptions]);
+
+    useEffect(() => {
+        if (fixtureQuery.trim() === '') {
+            return;
+        }
+
+        const fixture = fixtureOptions.find((item) => item.label === fixtureQuery);
+
+        if (!fixture) {
+            return;
+        }
+
+        form.setData('fixture_id', fixture.id ? Number(fixture.id) : null);
+        form.setData('league_id', fixture.league?.id ? Number(fixture.league.id) : form.data.league_id);
+        form.setData('league_name', fixture.league?.name ?? form.data.league_name);
+        form.setData('league_logo', fixture.league?.logo ?? form.data.league_logo);
+        form.setData('country_name', fixture.league?.country ?? form.data.country_name);
+        form.setData('home_team_id', fixture.teams?.home?.id ? Number(fixture.teams.home.id) : null);
+        form.setData('home_team_name', fixture.teams?.home?.name ?? '');
+        form.setData('home_team_logo', fixture.teams?.home?.logo ?? '');
+        form.setData('away_team_id', fixture.teams?.away?.id ? Number(fixture.teams.away.id) : null);
+        form.setData('away_team_name', fixture.teams?.away?.name ?? '');
+        form.setData('away_team_logo', fixture.teams?.away?.logo ?? '');
+    }, [fixtureOptions, fixtureQuery]);
+
+    useEffect(() => {
+        if (predictionValueOptions.length === 0) {
+            return;
+        }
+
+        const hasSelectedValue = predictionValueOptions.some((item) => item.value === form.data.prediction_value);
+
+        if (!hasSelectedValue) {
+            form.setData('prediction_value', '');
+        }
+    }, [predictionValueOptions, form.data.prediction_value]);
 
     const submit = () => {
         if (method === 'post') {
@@ -72,115 +267,183 @@ export function PredictionForm({ action, method, lookup, initialValues, submitLa
             )}
 
             <div className="grid gap-6 lg:grid-cols-2">
-                <Field label="League Name">
-                    <Input
-                        value={form.data.league_name}
-                        onChange={(event) => form.setData('league_name', event.target.value)}
-                    />
-                </Field>
-
                 <Field label="Country">
-                    <Select
-                        value={form.data.country_name || undefined}
-                        onValueChange={(value) => form.setData('country_name', value)}
-                    >
-                        <SelectTrigger>
-                            <SelectValue placeholder="Select country" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {lookup.countries.map((country) => (
-                                <SelectItem key={country.name ?? country.code} value={country.name ?? ''}>
-                                    {country.name}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                    <Input
+                        list="prediction-country-options"
+                        value={countryQuery}
+                        onChange={(event) => setCountryQuery(event.target.value)}
+                        placeholder="Search country"
+                    />
+                    <datalist id="prediction-country-options">
+                        {countries.map((country) => (
+                            <option key={country.code ?? country.name} value={country.name ?? ''}>
+                                {country.code ?? ''}
+                            </option>
+                        ))}
+                    </datalist>
                 </Field>
 
                 <Field label="League">
-                    <Select
-                        value={form.data.league_id ? String(form.data.league_id) : undefined}
-                        onValueChange={(value) => {
-                            const league = lookup.leagues.find((item) => String(item.id) === value);
-                            form.setData('league_id', Number(value));
-                            form.setData('league_name', league?.name ?? form.data.league_name);
-                            form.setData('country_name', league?.country ?? form.data.country_name);
-                        }}
-                    >
-                        <SelectTrigger>
-                            <SelectValue placeholder="Select league" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {lookup.leagues.map((league) => (
-                                <SelectItem key={league.id} value={String(league.id)}>
-                                    {league.name} {league.country ? `(${league.country})` : ''}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </Field>
-
-                <Field label="Fixture ID">
                     <Input
-                        type="number"
-                        value={form.data.fixture_id ?? ''}
-                        onChange={(event) =>
-                            form.setData('fixture_id', event.target.value ? Number(event.target.value) : null)
-                        }
+                        list="prediction-league-options"
+                        value={leagueQuery}
+                        onChange={(event) => setLeagueQuery(event.target.value)}
+                        placeholder={form.data.country_code ? 'Select league for country' : 'Search league'}
                     />
+                    <datalist id="prediction-league-options">
+                        {leagueOptions.map((league) => (
+                            <option key={league.id ?? league.name} value={league.name ?? ''}>
+                                {league.country ?? ''}
+                            </option>
+                        ))}
+                    </datalist>
                 </Field>
 
+                <Field label="Fixture">
+                    <Input
+                        list="prediction-fixture-options"
+                        value={fixtureQuery}
+                        onChange={(event) => setFixtureQuery(event.target.value)}
+                        placeholder={form.data.league_id ? 'Select exact fixture for this date' : 'Choose a league first'}
+                    />
+                    <datalist id="prediction-fixture-options">
+                        {fixtureOptions.map((fixture) => (
+                            <option key={fixture.id ?? fixture.label} value={fixture.label}>
+                                {fixture.date ?? ''}
+                            </option>
+                        ))}
+                    </datalist>
+                    <p className="text-xs text-muted-foreground">
+                        Selecting a fixture auto-fills the teams, logos, and stores the accurate fixture ID for API-Football widgets.
+                    </p>
+                </Field>
+
+                {/* 
                 <Field label="Home Team">
                     <Input
                         value={form.data.home_team_name}
-                        onChange={(event) => form.setData('home_team_name', event.target.value)}
+                        readOnly
+                        placeholder="Auto-filled from selected fixture"
                     />
                 </Field>
 
                 <Field label="Away Team">
                     <Input
                         value={form.data.away_team_name}
-                        onChange={(event) => form.setData('away_team_name', event.target.value)}
+                        readOnly
+                        placeholder="Auto-filled from selected fixture"
                     />
                 </Field>
+                */}
 
-                <Field label="Home Team Logo URL">
-                    <Input
-                        value={form.data.home_team_logo}
-                        onChange={(event) => form.setData('home_team_logo', event.target.value)}
-                    />
-                </Field>
+                <div className="lg:col-span-2">
+                    <Field label="Selected Match">
+                        {form.data.fixture_id ? (
+                            <div className="rounded-2xl border border-input bg-muted/30 px-4 py-4">
+                                <p className="font-medium">
+                                    {form.data.home_team_name || 'Home Team'} vs {form.data.away_team_name || 'Away Team'}
+                                </p>
+                                <p className="mt-1 text-sm text-muted-foreground">
+                                    Fixture ID: {form.data.fixture_id}
+                                </p>
+                                <p className="mt-1 text-sm text-muted-foreground">
+                                    Teams and logos were auto-filled from the selected fixture.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="rounded-2xl border border-dashed border-input bg-muted/20 px-4 py-4 text-sm text-muted-foreground">
+                                Select a fixture above to auto-fill the match teams and attach the correct API-Football fixture.
+                            </div>
+                        )}
+                    </Field>
+                </div>
 
-                <Field label="Away Team Logo URL">
+                <Field label="Schedule Date">
                     <Input
-                        value={form.data.away_team_logo}
-                        onChange={(event) => form.setData('away_team_logo', event.target.value)}
-                    />
-                </Field>
-
-                <Field label="Kickoff">
-                    <Input
-                        type="datetime-local"
+                        type="date"
                         value={form.data.match_starts_at}
-                        onChange={(event) => form.setData('match_starts_at', event.target.value)}
+                        onChange={(event) => {
+                            form.setData('match_starts_at', event.target.value);
+                            setFixtureQuery('');
+                            form.setData('fixture_id', null);
+                        }}
                     />
                 </Field>
 
                 <Field label="Prediction Type">
-                    <Input
-                        placeholder="1X2, Under/Over 2.5, BTTS..."
+                    <Select
                         value={form.data.prediction_type}
-                        onChange={(event) => form.setData('prediction_type', event.target.value)}
-                    />
+                        onValueChange={(value) => {
+                            form.setData('prediction_type', value);
+                            form.setData('prediction_value', '');
+                        }}
+                    >
+                        <SelectTrigger>
+                            <SelectValue placeholder="Select prediction market" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {predictionTypes.map((type) => (
+                                <SelectItem key={type} value={type}>
+                                    {type}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                        Prediction type is the market, such as `1X2`, `Double Chance`, or `Both Teams To Score`.
+                    </p>
                 </Field>
 
                 <Field label="Prediction Value">
-                    <Input
-                        placeholder="1X, Over, Home win..."
+                    <Select
                         value={form.data.prediction_value}
-                        onChange={(event) => form.setData('prediction_value', event.target.value)}
-                    />
+                        onValueChange={(value) => form.setData('prediction_value', value)}
+                        disabled={!form.data.prediction_type}
+                    >
+                        <SelectTrigger>
+                            <SelectValue placeholder={form.data.prediction_type ? 'Select betting tip' : 'Select prediction type first'} />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {predictionValueOptions.map((tip) => (
+                                <SelectItem key={`${tip.prediction_type}-${tip.value}`} value={tip.value}>
+                                    {tip.label} ({tip.value})
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                        Prediction value is the exact betting tip inside that market, for example `1`, `X2`, `Yes`, or `Over 2.5`.
+                    </p>
                 </Field>
+
+                <div className="space-y-2 lg:col-span-2">
+                    <Label>Predicted Score</Label>
+                    <div className="grid gap-4 md:grid-cols-2">
+                        <Input
+                            type="number"
+                            min="0"
+                            max="99"
+                            placeholder="Home score"
+                            value={form.data.predicted_score_home ?? ''}
+                            onChange={(event) =>
+                                form.setData('predicted_score_home', event.target.value ? Number(event.target.value) : null)
+                            }
+                        />
+                        <Input
+                            type="number"
+                            min="0"
+                            max="99"
+                            placeholder="Away score"
+                            value={form.data.predicted_score_away ?? ''}
+                            onChange={(event) =>
+                                form.setData('predicted_score_away', event.target.value ? Number(event.target.value) : null)
+                            }
+                        />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                        These score inputs are optional. Leave them blank if you only want to post the market tip.
+                    </p>
+                </div>
 
                 <Field label="Probability (%)">
                     <Input

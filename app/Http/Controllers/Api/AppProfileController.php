@@ -14,6 +14,7 @@ class AppProfileController extends Controller
             'predictionComments' => fn ($query) => $query->with('prediction:id,home_team_name,away_team_name')->latest()->limit(10),
             'predictions' => fn ($query) => $query->latest()->limit(10),
         ]);
+        $authorityScore = $user->predictions()->sum('likes_count') + ($user->predictions()->sum('comments_count') * 2);
 
         return response()->json([
             'user' => [
@@ -30,6 +31,8 @@ class AppProfileController extends Controller
                 'predictions' => $user->predictions()->count(),
                 'comments' => $user->predictionComments()->count(),
                 'likes' => $user->predictionLikes()->count(),
+                'authority_score' => $authorityScore,
+                'unread_notifications' => $user->unreadNotifications()->count(),
             ],
             'comments' => $user->predictionComments->map(fn ($comment) => [
                 'id' => $comment->id,

@@ -16,7 +16,9 @@ class Prediction extends Model
         'fixture_id',
         'league_id',
         'league_name',
+        'league_logo',
         'country_name',
+        'country_code',
         'home_team_id',
         'home_team_name',
         'home_team_logo',
@@ -26,6 +28,8 @@ class Prediction extends Model
         'match_starts_at',
         'prediction_type',
         'prediction_value',
+        'predicted_score_home',
+        'predicted_score_away',
         'probability',
         'odds',
         'analysis',
@@ -35,6 +39,7 @@ class Prediction extends Model
         'category',
         'likes_count',
         'comments_count',
+        'shares_count',
         'published_at',
     ];
 
@@ -44,9 +49,12 @@ class Prediction extends Model
             'match_starts_at' => 'datetime',
             'published_at' => 'datetime',
             'probability' => 'integer',
+            'predicted_score_home' => 'integer',
+            'predicted_score_away' => 'integer',
             'odds' => 'decimal:2',
             'likes_count' => 'integer',
             'comments_count' => 'integer',
+            'shares_count' => 'integer',
         ];
     }
 

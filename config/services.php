@@ -40,4 +40,8 @@ return [
         'key' => env('API_FOOTBALL_KEY'),
     ],
 
+    'firebase' => [
+        'credentials' => env('FIREBASE_CREDENTIALS'),
+    ],
+
 ];

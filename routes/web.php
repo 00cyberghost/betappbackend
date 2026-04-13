@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\NotificationController;
 use App\Http\Controllers\Admin\PredictionController;
 use Illuminate\Support\Facades\Route;
 use Laravel\Fortify\Features;
@@ -17,6 +18,8 @@ Route::middleware(['auth', 'verified', 'admin'])->group(function () {
     Route::get('dashboard/predictions/{prediction}/edit', [PredictionController::class, 'edit']);
     Route::put('dashboard/predictions/{prediction}', [PredictionController::class, 'update']);
     Route::delete('dashboard/predictions/{prediction}', [PredictionController::class, 'destroy']);
+    Route::get('dashboard/notifications', [NotificationController::class, 'index']);
+    Route::post('dashboard/notifications', [NotificationController::class, 'store']);
 });
 
 require __DIR__.'/settings.php';

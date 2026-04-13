@@ -3,8 +3,12 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Tip;
 use App\Models\Prediction;
+use App\Models\User;
+use App\Services\AppNotificationService;
 use App\Services\ApiFootballService;
+use App\Services\FirebasePushService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -54,13 +58,24 @@ class PredictionController extends Controller
         ]);
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request, AppNotificationService $appNotificationService, FirebasePushService $firebasePushService): RedirectResponse
     {
         $data = $this->validated($request);
         $data['user_id'] = $request->user()->id;
         $data['published_at'] = $data['status'] === 'published' ? now() : null;
 
-        Prediction::create($data);
+        $prediction = Prediction::create($data);
+
+        if ($prediction->status === 'published') {
+            $users = User::query()->where('id', '!=', $request->user()->id)->get();
+            $appNotificationService->notifyPredictionPublished($users, $prediction);
+            $firebasePushService->sendToTokens(
+                $users->flatMap(fn (User $user) => $user->deviceTokens()->pluck('token'))->all(),
+                'New prediction posted',
+                "{$prediction->home_team_name} vs {$prediction->away_team_name} is now live.",
+                ['prediction_id' => $prediction->id]
+            );
+        }
 
         return redirect('/dashboard/predictions')->with('success', 'Prediction created.');
     }
@@ -74,14 +89,26 @@ class PredictionController extends Controller
         ]);
     }
 
-    public function update(Request $request, Prediction $prediction): RedirectResponse
+    public function update(Request $request, Prediction $prediction, AppNotificationService $appNotificationService, FirebasePushService $firebasePushService): RedirectResponse
     {
         $data = $this->validated($request);
+        $wasPublished = $prediction->status === 'published';
         $data['published_at'] = $data['status'] === 'published'
             ? ($prediction->published_at ?? now())
             : null;
 
         $prediction->update($data);
+
+        if (! $wasPublished && $prediction->status === 'published') {
+            $users = User::query()->where('id', '!=', $request->user()->id)->get();
+            $appNotificationService->notifyPredictionPublished($users, $prediction);
+            $firebasePushService->sendToTokens(
+                $users->flatMap(fn (User $user) => $user->deviceTokens()->pluck('token'))->all(),
+                'New prediction posted',
+                "{$prediction->home_team_name} vs {$prediction->away_team_name} is now live.",
+                ['prediction_id' => $prediction->id]
+            );
+        }
 
         return redirect('/dashboard/predictions')->with('success', 'Prediction updated.');
     }
@@ -99,7 +126,9 @@ class PredictionController extends Controller
             'fixture_id' => ['nullable', 'integer'],
             'league_id' => ['nullable', 'integer'],
             'league_name' => ['required', 'string', 'max:255'],
+            'league_logo' => ['nullable', 'url', 'max:2048'],
             'country_name' => ['nullable', 'string', 'max:255'],
+            'country_code' => ['nullable', 'string', 'max:10'],
             'home_team_id' => ['nullable', 'integer'],
             'home_team_name' => ['required', 'string', 'max:255'],
             'home_team_logo' => ['nullable', 'url', 'max:2048'],
@@ -109,6 +138,8 @@ class PredictionController extends Controller
             'match_starts_at' => ['required', 'date'],
             'prediction_type' => ['required', 'string', 'max:100'],
             'prediction_value' => ['required', 'string', 'max:100'],
+            'predicted_score_home' => ['nullable', 'integer', 'min:0', 'max:99'],
+            'predicted_score_away' => ['nullable', 'integer', 'min:0', 'max:99'],
             'probability' => ['nullable', 'integer', 'min:0', 'max:100'],
             'odds' => ['nullable', 'numeric', 'min:0'],
             'analysis' => ['required', 'string'],
@@ -132,34 +163,35 @@ class PredictionController extends Controller
     protected function lookupPayload(ApiFootballService $apiFootballService): array
     {
         try {
-            $countries = collect($apiFootballService->countries()['response'] ?? [])
-                ->map(fn (array $country) => [
-                    'name' => $country['name'],
-                    'code' => $country['code'],
+            $countries = \App\Models\Country::query()
+                ->orderBy('name')
+                ->get(['name', 'code', 'flag'])
+                ->map(fn ($country) => [
+                    'name' => $country->name,
+                    'code' => $country->code,
+                    'flag' => $country->flag,
                 ])
-                ->take(24)
                 ->values();
 
-            $leagues = collect($apiFootballService->leagues()['response'] ?? [])
-                ->map(fn (array $item) => [
-                    'id' => $item['league']['id'] ?? null,
-                    'name' => $item['league']['name'] ?? null,
-                    'country' => $item['country']['name'] ?? null,
-                    'season' => collect($item['seasons'] ?? [])->firstWhere('current', true)['year'] ?? null,
-                ])
-                ->filter(fn (array $item) => $item['id'] && $item['name'])
-                ->take(40)
+            $tips = Tip::query()
+                ->where('is_active', true)
+                ->orderBy('prediction_type')
+                ->orderBy('sort_order')
+                ->orderBy('label')
+                ->get(['id', 'prediction_type', 'label', 'value', 'description'])
                 ->values();
 
             return [
                 'countries' => $countries,
-                'leagues' => $leagues,
+                'leagues' => [],
+                'tips' => $tips,
                 'apiConfigured' => true,
             ];
         } catch (\Throwable $exception) {
             return [
                 'countries' => [],
                 'leagues' => [],
+                'tips' => [],
                 'apiConfigured' => false,
                 'message' => $exception->getMessage(),
             ];

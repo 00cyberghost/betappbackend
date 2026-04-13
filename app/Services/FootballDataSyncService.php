@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Country;
 use App\Models\Prediction;
 use App\Models\User;
 use Illuminate\Support\Carbon;
@@ -21,6 +22,8 @@ class FootballDataSyncService
         $competitions = $this->attempt(fn () => $this->syncCompetitionsSnapshot());
         $updates = $this->attempt(fn () => $this->syncUpdatesSnapshot());
         $aiPredictions = $this->attempt(fn () => $this->syncAiPredictions());
+        $countries = $this->attempt(fn () => $this->syncCountries());
+        $metadata = $this->attempt(fn () => $this->syncPredictionMetadata());
         $this->attempt(fn () => $this->syncEditorialHighlightsFromLive());
 
         return [
@@ -28,6 +31,8 @@ class FootballDataSyncService
             'competitions' => $competitions,
             'updates' => $updates,
             'ai_predictions' => $aiPredictions,
+            'countries' => $countries,
+            'metadata' => $metadata,
         ];
     }
 
@@ -99,6 +104,54 @@ class FootballDataSyncService
         $this->snapshotService->put('updates', $items);
 
         return count($items);
+    }
+
+    public function syncCountries(): int
+    {
+        $payload = $this->apiFootballService->countries();
+        $items = collect($payload['response'] ?? []);
+
+        foreach ($items as $item) {
+            Country::updateOrCreate(
+                ['name' => $item['name'] ?? 'Unknown'],
+                [
+                    'code' => $item['code'] ?? null,
+                    'flag' => $item['flag'] ?? null,
+                ]
+            );
+        }
+
+        return $items->count();
+    }
+
+    public function syncPredictionMetadata(): int
+    {
+        $competitions = collect($this->snapshotService->get('competitions'));
+        $countries = Country::query()->get()->keyBy(fn (Country $country) => strtolower($country->name));
+        $updated = 0;
+
+        Prediction::query()->chunkById(100, function ($predictions) use ($competitions, $countries, &$updated) {
+            foreach ($predictions as $prediction) {
+                $league = $competitions->firstWhere('id', $prediction->league_id);
+                $country = $prediction->country_name
+                    ? $countries->get(strtolower($prediction->country_name))
+                    : null;
+
+                $attributes = array_filter([
+                    'league_logo' => $prediction->league_logo ?: ($league['logo'] ?? null),
+                    'country_code' => $prediction->country_code ?: ($country?->code ?? null),
+                ], fn ($value) => $value !== null && $value !== '');
+
+                if ($attributes === []) {
+                    continue;
+                }
+
+                $prediction->update($attributes);
+                $updated++;
+            }
+        });
+
+        return $updated;
     }
 
     public function syncAiPredictions(): int
@@ -220,6 +273,12 @@ class FootballDataSyncService
         $awayPercent = (int) rtrim((string) $percentages->get('away', '0'), '%');
         $drawPercent = (int) rtrim((string) $percentages->get('draw', '0'), '%');
         $probability = max($homePercent, $awayPercent, $drawPercent);
+        [$predictionType, $predictionValue] = $this->resolveAiMarket(
+            fixture: $fixture,
+            winner: $winner,
+            winnerComment: $winnerComment,
+            underOver: $underOver,
+        );
 
         $analysisLines = array_filter([
             $advice,
@@ -234,7 +293,9 @@ class FootballDataSyncService
         return [
             'league_id' => $fixture['league']['id'] ?? null,
             'league_name' => str((string) ($fixture['league']['name'] ?? 'League'))->limit(255)->toString(),
+            'league_logo' => $fixture['league']['logo'] ?? null,
             'country_name' => str((string) ($fixture['league']['country'] ?? ''))->limit(255)->toString(),
+            'country_code' => null,
             'home_team_id' => $fixture['teams']['home']['id'] ?? null,
             'home_team_name' => str((string) ($fixture['teams']['home']['name'] ?? 'Home'))->limit(255)->toString(),
             'home_team_logo' => $fixture['teams']['home']['logo'] ?? null,
@@ -242,14 +303,72 @@ class FootballDataSyncService
             'away_team_name' => str((string) ($fixture['teams']['away']['name'] ?? 'Away'))->limit(255)->toString(),
             'away_team_logo' => $fixture['teams']['away']['logo'] ?? null,
             'match_starts_at' => Carbon::parse($fixture['fixture']['date'] ?? now()),
-            'prediction_type' => 'AI Prediction',
-            'prediction_value' => str((string) ($winner ?? $underOver ?? 'AI Tip'))->limit(100)->toString(),
+            'prediction_type' => $predictionType,
+            'prediction_value' => $predictionValue,
             'probability' => $probability ?: null,
             'odds' => null,
             'analysis' => str(implode(' ', $analysisLines))->limit(5000)->toString(),
             'likes_count' => 0,
             'comments_count' => 0,
         ];
+    }
+
+    protected function resolveAiMarket(array $fixture, ?string $winner, ?string $winnerComment, ?string $underOver): array
+    {
+        $homeTeam = trim((string) ($fixture['teams']['home']['name'] ?? ''));
+        $awayTeam = trim((string) ($fixture['teams']['away']['name'] ?? ''));
+        $comment = strtolower(trim((string) $winnerComment));
+
+        if ($underOver) {
+            $normalizedUnderOver = str((string) $underOver)->squish()->toString();
+            if (preg_match('/\b(under|over)\s+(\d+(?:\.\d+)?)\b/i', $normalizedUnderOver, $matches) === 1) {
+                return ["Under/Over {$matches[2]}", str(ucfirst(strtolower($matches[1])))." {$matches[2]}"];
+            }
+        }
+
+        if ($winner && $homeTeam !== '' && strcasecmp($winner, $homeTeam) === 0) {
+            if (str_contains($comment, 'draw')) {
+                return ['Double Chance', '1X'];
+            }
+
+            return ['1X2', '1'];
+        }
+
+        if ($winner && $awayTeam !== '' && strcasecmp($winner, $awayTeam) === 0) {
+            if (str_contains($comment, 'draw')) {
+                return ['Double Chance', 'X2'];
+            }
+
+            return ['1X2', '2'];
+        }
+
+        if ($winner && strcasecmp($winner, 'draw') === 0) {
+            return ['1X2', 'X'];
+        }
+
+        if ($comment !== '') {
+            if (str_contains($comment, 'home') && str_contains($comment, 'draw')) {
+                return ['Double Chance', '1X'];
+            }
+
+            if (str_contains($comment, 'away') && str_contains($comment, 'draw')) {
+                return ['Double Chance', 'X2'];
+            }
+
+            if (str_contains($comment, 'home')) {
+                return ['1X2', '1'];
+            }
+
+            if (str_contains($comment, 'away')) {
+                return ['1X2', '2'];
+            }
+
+            if (str_contains($comment, 'draw')) {
+                return ['1X2', 'X'];
+            }
+        }
+
+        return ['AI Prediction', str((string) ($winner ?? $underOver ?? 'AI Tip'))->limit(100)->toString()];
     }
 
     protected function attempt(callable $callback): int

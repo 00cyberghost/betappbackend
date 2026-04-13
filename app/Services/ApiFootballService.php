@@ -31,6 +31,37 @@ class ApiFootballService
         );
     }
 
+    public function leaguesByCode(string $code, ?int $season = null, bool $current = true): array
+    {
+        return $this->cached(
+            sprintf('leagues-by-code:%s:%s:%s', strtoupper($code), $season ?? 'current', $current ? '1' : '0'),
+            21600,
+            fn () => $this->get('leagues', array_filter([
+                'code' => strtoupper($code),
+                'season' => $season,
+                'current' => $current ? 'true' : null,
+            ]))
+        );
+    }
+
+    public function searchLeagues(string $search): array
+    {
+        return $this->cached(
+            'leagues-search:'.md5($search),
+            21600,
+            fn () => $this->get('leagues', [
+                'search' => $search,
+            ])
+        );
+    }
+
+    public function teams(array $params): array
+    {
+        ksort($params);
+
+        return $this->cached('teams:'.md5(json_encode($params)), 21600, fn () => $this->get('teams', $params));
+    }
+
     public function fixtures(array $params): array
     {
         ksort($params);

@@ -47,4 +47,9 @@ class User extends Authenticatable
     {
         return $this->hasMany(PredictionLike::class);
     }
+
+    public function deviceTokens(): HasMany
+    {
+        return $this->hasMany(UserDeviceToken::class);
+    }
 }
