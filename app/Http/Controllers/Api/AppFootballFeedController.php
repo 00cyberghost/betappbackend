@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Country;
 use App\Services\ApiFootballService;
 use App\Services\FootballSnapshotService;
 use Illuminate\Http\JsonResponse;
@@ -26,12 +27,18 @@ class AppFootballFeedController extends Controller
             'timezone' => $request->string('timezone')->toString() ?: null,
         ]));
 
-        $items = collect($payload['response'] ?? [])->map(function (array $fixture) {
+        $countries = Country::query()
+            ->get()
+            ->keyBy(fn (Country $country) => $this->normalizeCountryName($country->name));
+
+        $items = collect($payload['response'] ?? [])->map(function (array $fixture) use ($countries) {
+            $country = $countries->get($this->normalizeCountryName($fixture['league']['country'] ?? null));
+
             return [
                 'id' => $fixture['fixture']['id'] ?? null,
                 'league' => $fixture['league']['name'] ?? 'League',
                 'league_id' => $fixture['league']['id'] ?? null,
-                'league_logo' => $fixture['league']['logo'] ?? null,
+                'league_logo' => $fixture['league']['logo'] ?: ($country?->flag ?? null),
                 'season' => $fixture['league']['season'] ?? null,
                 'home_team' => $fixture['teams']['home']['name'] ?? 'Home',
                 'away_team' => $fixture['teams']['away']['name'] ?? 'Away',
@@ -184,5 +191,10 @@ class AppFootballFeedController extends Controller
     protected function updatesCollection(ApiFootballService $apiFootballService): array
     {
         return $apiFootballService->transfers($apiFootballService->resolveTeamIdsForHighlights());
+    }
+
+    protected function normalizeCountryName(?string $countryName): string
+    {
+        return strtolower((string) preg_replace('/[^a-z0-9]+/i', '', trim((string) $countryName)));
     }
 }

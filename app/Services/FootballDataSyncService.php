@@ -38,29 +38,34 @@ class FootballDataSyncService
 
     public function syncLiveSnapshot(): int
     {
+        $countries = $this->countriesByNormalizedName();
         $payload = $this->apiFootballService->fixtures([
             'live' => 'all',
             'timezone' => 'Africa/Lagos',
         ]);
 
         $items = collect($payload['response'] ?? [])
-            ->map(fn (array $fixture) => [
-                'id' => $fixture['fixture']['id'] ?? null,
-                'league' => $fixture['league']['name'] ?? 'League',
-                'league_id' => $fixture['league']['id'] ?? null,
-                'league_logo' => $fixture['league']['logo'] ?? null,
-                'season' => $fixture['league']['season'] ?? null,
-                'home_team' => $fixture['teams']['home']['name'] ?? 'Home',
-                'away_team' => $fixture['teams']['away']['name'] ?? 'Away',
-                'home_team_id' => $fixture['teams']['home']['id'] ?? null,
-                'away_team_id' => $fixture['teams']['away']['id'] ?? null,
-                'home_logo' => $fixture['teams']['home']['logo'] ?? null,
-                'away_logo' => $fixture['teams']['away']['logo'] ?? null,
-                'elapsed' => $fixture['fixture']['status']['elapsed'] ?? null,
-                'short_status' => $fixture['fixture']['status']['short'] ?? null,
-                'home_score' => $fixture['goals']['home'] ?? 0,
-                'away_score' => $fixture['goals']['away'] ?? 0,
-            ])
+            ->map(function (array $fixture) use ($countries) {
+                $country = $this->countryFromName($countries, $fixture['league']['country'] ?? null);
+
+                return [
+                    'id' => $fixture['fixture']['id'] ?? null,
+                    'league' => $fixture['league']['name'] ?? 'League',
+                    'league_id' => $fixture['league']['id'] ?? null,
+                    'league_logo' => $fixture['league']['logo'] ?: ($country?->flag ?? null),
+                    'season' => $fixture['league']['season'] ?? null,
+                    'home_team' => $fixture['teams']['home']['name'] ?? 'Home',
+                    'away_team' => $fixture['teams']['away']['name'] ?? 'Away',
+                    'home_team_id' => $fixture['teams']['home']['id'] ?? null,
+                    'away_team_id' => $fixture['teams']['away']['id'] ?? null,
+                    'home_logo' => $fixture['teams']['home']['logo'] ?? null,
+                    'away_logo' => $fixture['teams']['away']['logo'] ?? null,
+                    'elapsed' => $fixture['fixture']['status']['elapsed'] ?? null,
+                    'short_status' => $fixture['fixture']['status']['short'] ?? null,
+                    'home_score' => $fixture['goals']['home'] ?? 0,
+                    'away_score' => $fixture['goals']['away'] ?? 0,
+                ];
+            })
             ->filter(fn (array $item) => $item['id'])
             ->values()
             ->all();
@@ -97,7 +102,7 @@ class FootballDataSyncService
     public function syncUpdatesSnapshot(): int
     {
         $items = collect($this->apiFootballService->transfers($this->apiFootballService->resolveTeamIdsForHighlights()))
-            ->take(18)
+            ->take(50)
             ->values()
             ->all();
 
@@ -127,18 +132,16 @@ class FootballDataSyncService
     public function syncPredictionMetadata(): int
     {
         $competitions = collect($this->snapshotService->get('competitions'));
-        $countries = Country::query()->get()->keyBy(fn (Country $country) => strtolower($country->name));
+        $countries = $this->countriesByNormalizedName();
         $updated = 0;
 
         Prediction::query()->chunkById(100, function ($predictions) use ($competitions, $countries, &$updated) {
             foreach ($predictions as $prediction) {
                 $league = $competitions->firstWhere('id', $prediction->league_id);
-                $country = $prediction->country_name
-                    ? $countries->get(strtolower($prediction->country_name))
-                    : null;
+                $country = $this->countryFromName($countries, $prediction->country_name);
 
                 $attributes = array_filter([
-                    'league_logo' => $prediction->league_logo ?: ($league['logo'] ?? null),
+                    'league_logo' => $prediction->league_logo ?: ($league['logo'] ?? null) ?: ($country?->flag ?? null),
                     'country_code' => $prediction->country_code ?: ($country?->code ?? null),
                 ], fn ($value) => $value !== null && $value !== '');
 
@@ -168,7 +171,7 @@ class FootballDataSyncService
         ])['response'] ?? [])
             ->unique(fn (array $fixture) => $fixture['fixture']['id'] ?? null)
             ->filter(fn (array $fixture) => ! empty($fixture['fixture']['id']))
-            ->take(12)
+            ->take(50)
             ->values();
 
         $created = 0;
@@ -264,6 +267,8 @@ class FootballDataSyncService
 
     protected function mapAiPrediction(array $fixture, ?array $prediction): array
     {
+        $countries = $this->countriesByNormalizedName();
+        $country = $this->countryFromName($countries, $fixture['league']['country'] ?? null);
         $winner = $prediction['predictions']['winner']['name'] ?? null;
         $winnerComment = $prediction['predictions']['winner']['comment'] ?? null;
         $advice = $prediction['predictions']['advice'] ?? 'AI recommendation is not available yet.';
@@ -293,9 +298,9 @@ class FootballDataSyncService
         return [
             'league_id' => $fixture['league']['id'] ?? null,
             'league_name' => str((string) ($fixture['league']['name'] ?? 'League'))->limit(255)->toString(),
-            'league_logo' => $fixture['league']['logo'] ?? null,
+            'league_logo' => $fixture['league']['logo'] ?: ($country?->flag ?? null),
             'country_name' => str((string) ($fixture['league']['country'] ?? ''))->limit(255)->toString(),
-            'country_code' => null,
+            'country_code' => $country?->code,
             'home_team_id' => $fixture['teams']['home']['id'] ?? null,
             'home_team_name' => str((string) ($fixture['teams']['home']['name'] ?? 'Home'))->limit(255)->toString(),
             'home_team_logo' => $fixture['teams']['home']['logo'] ?? null,
@@ -378,5 +383,26 @@ class FootballDataSyncService
         } catch (\Throwable) {
             return 0;
         }
+    }
+
+    protected function countriesByNormalizedName(): Collection
+    {
+        return Country::query()
+            ->get()
+            ->keyBy(fn (Country $country) => $this->normalizeCountryName($country->name));
+    }
+
+    protected function countryFromName(Collection $countries, ?string $countryName): ?Country
+    {
+        if (! $countryName) {
+            return null;
+        }
+
+        return $countries->get($this->normalizeCountryName($countryName));
+    }
+
+    protected function normalizeCountryName(?string $countryName): string
+    {
+        return strtolower((string) preg_replace('/[^a-z0-9]+/i', '', trim((string) $countryName)));
     }
 }
