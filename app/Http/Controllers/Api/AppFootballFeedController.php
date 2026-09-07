@@ -11,20 +11,13 @@ use Illuminate\Http\Request;
 
 class AppFootballFeedController extends Controller
 {
-    public function live(Request $request, ApiFootballService $apiFootballService, FootballSnapshotService $snapshotService): JsonResponse
+    public function live(Request $request, ApiFootballService $apiFootballService): JsonResponse
     {
-        if (! $request->hasAny(['league', 'timezone'])) {
-            $cached = $snapshotService->get('live');
-
-            if ($cached !== []) {
-                return response()->json(['data' => $cached]);
-            }
-        }
-
-        $payload = $apiFootballService->fixtures(array_filter([
+        $limit = max(1, min(20, $request->integer('limit') ?: 20));
+        $payload = $apiFootballService->freshFixtures(array_filter([
             'live' => 'all',
             'league' => $request->integer('league') ?: null,
-            'timezone' => $request->string('timezone')->toString() ?: null,
+            'timezone' => $request->string('timezone')->toString() ?: 'Africa/Lagos',
         ]));
 
         $countries = Country::query()
@@ -39,6 +32,9 @@ class AppFootballFeedController extends Controller
                 'league' => $fixture['league']['name'] ?? 'League',
                 'league_id' => $fixture['league']['id'] ?? null,
                 'league_logo' => $fixture['league']['logo'] ?: ($country?->flag ?? null),
+                'country' => $fixture['league']['country'] ?? null,
+                'country_code' => $country?->code,
+                'country_flag' => $country?->flag,
                 'season' => $fixture['league']['season'] ?? null,
                 'home_team' => $fixture['teams']['home']['name'] ?? 'Home',
                 'away_team' => $fixture['teams']['away']['name'] ?? 'Away',
@@ -51,9 +47,20 @@ class AppFootballFeedController extends Controller
                 'home_score' => $fixture['goals']['home'] ?? 0,
                 'away_score' => $fixture['goals']['away'] ?? 0,
             ];
-        })->values();
+        })
+            ->filter(fn (array $item) => $item['id'])
+            ->take($limit)
+            ->values();
 
-        return response()->json(['data' => $items]);
+        return response()->json([
+            'data' => $items,
+            'meta' => [
+                'cached' => false,
+                'fetched_at' => now('Africa/Lagos')->toIso8601String(),
+                'limit' => $limit,
+                'returned' => $items->count(),
+            ],
+        ]);
     }
 
     public function liveDetail(int $fixture, Request $request, ApiFootballService $apiFootballService): JsonResponse
@@ -161,7 +168,7 @@ class AppFootballFeedController extends Controller
         ]);
     }
 
-    public function updates(ApiFootballService $apiFootballService, FootballSnapshotService $snapshotService): JsonResponse
+    public function updates(Request $request, ApiFootballService $apiFootballService, FootballSnapshotService $snapshotService): JsonResponse
     {
         $payload = $snapshotService->get('updates');
 
@@ -170,6 +177,19 @@ class AppFootballFeedController extends Controller
         }
 
         $items = collect($payload)
+            ->when($request->string('category')->toString() !== '', function ($updates) use ($request) {
+                $category = $request->string('category')->toString();
+
+                if ($category === 'Latest') {
+                    return $updates;
+                }
+
+                if ($category === 'Transfer') {
+                    return $updates->where('source_type', 'transfer');
+                }
+
+                return $updates->where('category', $category);
+            })
             ->take(12)
             ->values();
 
@@ -190,7 +210,7 @@ class AppFootballFeedController extends Controller
 
     protected function updatesCollection(ApiFootballService $apiFootballService): array
     {
-        return $apiFootballService->transfers($apiFootballService->resolveTeamIdsForHighlights());
+        return $apiFootballService->footballUpdates($apiFootballService->resolveTeamIdsForHighlights());
     }
 
     protected function normalizeCountryName(?string $countryName): string

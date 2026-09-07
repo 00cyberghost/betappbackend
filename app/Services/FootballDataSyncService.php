@@ -101,7 +101,7 @@ class FootballDataSyncService
 
     public function syncUpdatesSnapshot(): int
     {
-        $items = collect($this->apiFootballService->transfers($this->apiFootballService->resolveTeamIdsForHighlights()))
+        $items = collect($this->apiFootballService->footballUpdates($this->apiFootballService->resolveTeamIdsForHighlights()))
             ->take(50)
             ->values()
             ->all();

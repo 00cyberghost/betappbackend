@@ -69,6 +69,13 @@ class ApiFootballService
         return $this->cached('fixtures:'.md5(json_encode($params)), 900, fn () => $this->get('fixtures', $params));
     }
 
+    public function freshFixtures(array $params): array
+    {
+        ksort($params);
+
+        return $this->get('fixtures', $params);
+    }
+
     public function fixturePrediction(int $fixtureId): array
     {
         return $this->cached("predictions:{$fixtureId}", 1800, fn () => $this->get('predictions', [
@@ -125,9 +132,13 @@ class ApiFootballService
     {
         return collect($teamIds)
             ->flatMap(function (int $teamId) {
-                $response = $this->cached("transfers:{$teamId}", 21600, fn () => $this->get('transfers', [
-                    'team' => $teamId,
-                ]));
+                try {
+                    $response = $this->cached("transfers:{$teamId}", 21600, fn () => $this->get('transfers', [
+                        'team' => $teamId,
+                    ]));
+                } catch (\Throwable) {
+                    return [];
+                }
 
                 return collect($response['response'] ?? [])->map(function (array $transfer) use ($teamId) {
                     $latestTransfer = collect($transfer['transfers'] ?? [])->first();
@@ -137,19 +148,24 @@ class ApiFootballService
                     $fromTeam = $latestTransfer['teams']['out']['name'] ?? 'their previous club';
                     $toTeam = $latestTransfer['teams']['in']['name'] ?? 'a new club';
                     $playerName = $transfer['player']['name'] ?? 'Player';
+                    $title = $playerName.' transfer update';
+                    $body = $playerName.' is linked with '.$toTeam.' from '.$fromTeam.'.';
 
                     return [
-                        'id' => $transferId,
-                        'title' => $playerName.' transfer update',
-                        'body' => $playerName.' is linked with '.$toTeam.' from '.$fromTeam.'.',
+                        'id' => 'transfer-'.md5($transferId),
+                        'title' => $title,
+                        'body' => $body,
                         'date' => $date,
                         'player_name' => $playerName,
                         'player_photo' => $transfer['player']['photo'] ?? null,
                         'team_in' => $toTeam,
                         'team_out' => $fromTeam,
+                        'team_logo' => $latestTransfer['teams']['in']['logo'] ?? $latestTransfer['teams']['out']['logo'] ?? null,
                         'type' => $latestTransfer['type'] ?? 'Transfer',
-                        'likes' => rand(4, 18),
-                        'comments' => rand(1, 12),
+                        'source_type' => 'transfer',
+                        'category' => $this->classifyUpdate($title.' '.$body),
+                        'likes' => $this->stableCount($transferId, 4, 18),
+                        'comments' => $this->stableCount($transferId.'comments', 1, 12),
                     ];
                 });
             })
@@ -158,9 +174,99 @@ class ApiFootballService
             ->all();
     }
 
+    public function injuries(array $teamIds, ?int $season = null): array
+    {
+        $season ??= (int) now('Africa/Lagos')->year;
+
+        return collect($teamIds)
+            ->flatMap(function (int $teamId) use ($season) {
+                try {
+                    $response = $this->cached("injuries:{$teamId}:{$season}", 3600, fn () => $this->get('injuries', [
+                        'team' => $teamId,
+                        'season' => $season,
+                    ]));
+                } catch (\Throwable) {
+                    return [];
+                }
+
+                return collect($response['response'] ?? [])->map(function (array $injury) use ($teamId) {
+                    $fixtureId = $injury['fixture']['id'] ?? null;
+                    $playerId = $injury['player']['id'] ?? null;
+                    $date = $injury['fixture']['date'] ?? null;
+                    $reason = $injury['player']['reason'] ?? $injury['player']['type'] ?? 'an injury concern';
+                    $playerName = $injury['player']['name'] ?? 'Player';
+                    $teamName = $injury['team']['name'] ?? 'the squad';
+                    $opponent = $injury['fixture']['teams']['away']['name'] ?? $injury['fixture']['teams']['home']['name'] ?? null;
+                    $title = $playerName.' injury update';
+                    $body = $playerName.' is listed for '.$teamName.' with '.$reason.($opponent ? ' around the fixture involving '.$opponent : '').'.';
+                    $updateId = implode('-', array_filter([$teamId, $playerId, $fixtureId, $date, $reason]));
+
+                    return [
+                        'id' => 'injury-'.md5($updateId),
+                        'title' => $title,
+                        'body' => $body,
+                        'date' => $date,
+                        'player_name' => $playerName,
+                        'player_photo' => $injury['player']['photo'] ?? null,
+                        'team_in' => $teamName,
+                        'team_out' => null,
+                        'team_logo' => $injury['team']['logo'] ?? $injury['league']['logo'] ?? null,
+                        'league' => $injury['league']['name'] ?? null,
+                        'league_logo' => $injury['league']['logo'] ?? null,
+                        'fixture_id' => $fixtureId,
+                        'type' => $injury['player']['type'] ?? 'Injury',
+                        'reason' => $reason,
+                        'source_type' => 'injury',
+                        'category' => $this->classifyUpdate(($injury['league']['name'] ?? '').' '.$teamName.' '.$title.' '.$body),
+                        'likes' => $this->stableCount($updateId, 4, 18),
+                        'comments' => $this->stableCount($updateId.'comments', 1, 12),
+                    ];
+                });
+            })
+            ->sortByDesc('date')
+            ->values()
+            ->all();
+    }
+
+    public function footballUpdates(array $teamIds): array
+    {
+        return collect([
+            ...$this->transfers($teamIds),
+            ...$this->injuries($teamIds),
+        ])
+            ->sortByDesc('date')
+            ->unique('id')
+            ->values()
+            ->all();
+    }
+
     public function resolveTeamIdsForHighlights(): array
     {
         return [40, 42, 49, 50, 63, 541, 529];
+    }
+
+    protected function classifyUpdate(string $text): string
+    {
+        $value = strtolower($text);
+
+        if (str_contains($value, 'england') || str_contains($value, 'premier league') || str_contains($value, 'arsenal') || str_contains($value, 'liverpool') || str_contains($value, 'manchester')) {
+            return 'Premier League';
+        }
+
+        if (str_contains($value, 'champions league') || str_contains($value, 'europa') || str_contains($value, 'la liga') || str_contains($value, 'serie a') || str_contains($value, 'bundesliga') || str_contains($value, 'ligue 1') || str_contains($value, 'barcelona') || str_contains($value, 'real madrid') || str_contains($value, 'bayern')) {
+            return 'European Football';
+        }
+
+        if (str_contains($value, 'world cup') || str_contains($value, 'euro') || str_contains($value, 'afcon') || str_contains($value, 'national')) {
+            return 'International';
+        }
+
+        return 'Latest';
+    }
+
+    protected function stableCount(string $seed, int $min, int $max): int
+    {
+        return $min + (abs(crc32($seed)) % (($max - $min) + 1));
     }
 
     protected function get(string $endpoint, array $query = []): array
