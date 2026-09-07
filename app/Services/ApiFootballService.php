@@ -55,6 +55,19 @@ class ApiFootballService
         );
     }
 
+    public function leagueById(int $leagueId, ?int $season = null, bool $current = true): array
+    {
+        return $this->cached(
+            sprintf('league-by-id:%s:%s:%s', $leagueId, $season ?? 'current', $current ? '1' : '0'),
+            21600,
+            fn () => $this->get('leagues', array_filter([
+                'id' => $leagueId,
+                'season' => $season,
+                'current' => $current ? 'true' : null,
+            ]))
+        );
+    }
+
     public function teams(array $params): array
     {
         ksort($params);
