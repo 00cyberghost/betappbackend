@@ -299,6 +299,18 @@ export function PredictionForm({ action, method, lookup, initialValues, submitLa
                     </datalist>
                 </Field>
 
+                <Field label="Schedule Date">
+                    <Input
+                        type="date"
+                        value={form.data.match_starts_at}
+                        onChange={(event) => {
+                            form.setData('match_starts_at', event.target.value);
+                            setFixtureQuery('');
+                            form.setData('fixture_id', null);
+                        }}
+                    />
+                </Field>
+
                 <Field label="Fixture">
                     <Input
                         list="prediction-fixture-options"
@@ -358,47 +370,41 @@ export function PredictionForm({ action, method, lookup, initialValues, submitLa
                     </Field>
                 </div>
 
-                <Field label="Schedule Date">
-                    <Input
-                        type="date"
-                        value={form.data.match_starts_at}
-                        onChange={(event) => {
-                            form.setData('match_starts_at', event.target.value);
-                            setFixtureQuery('');
-                            form.setData('fixture_id', null);
-                        }}
-                    />
-                </Field>
-
-                <Field label="Prediction Type">
-                    <Select
-                        value={form.data.prediction_type}
-                        onValueChange={(value) => {
-                            form.setData('prediction_type', value);
-                            form.setData('prediction_value', '');
-                        }}
-                    >
-                        <SelectTrigger>
-                            <SelectValue placeholder="Select prediction market" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {predictionTypes.map((type) => (
-                                <SelectItem key={type} value={type}>
-                                    {type}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                        Prediction type is the market, such as `1X2`, `Double Chance`, or `Both Teams To Score`.
-                    </p>
-                </Field>
-
+                
+                <div className="space-y-2 lg:col-span-2">
+                    <Field label="Prediction Type">
+                        <Select
+                            value={form.data.prediction_type}
+                            onValueChange={(value) => {
+                                form.setData('prediction_type', value);
+                                form.setData('prediction_value', '');
+                            }}
+                        >
+                            <SelectTrigger>
+                                <SelectValue placeholder="Select prediction market" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {predictionTypes.map((type) => (
+                                    <SelectItem key={type} value={type}>
+                                        {type}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                            Prediction type is the market, such as `1X2`, `Double Chance`, or `Both Teams To Score`.
+                        </p>
+                    </Field>
+                </div>
+                
+                
+                <div className='min-w-full'>
                 <Field label="Prediction Value">
                     <Select
                         value={form.data.prediction_value}
                         onValueChange={(value) => form.setData('prediction_value', value)}
                         disabled={!form.data.prediction_type}
+                        
                     >
                         <SelectTrigger>
                             <SelectValue placeholder={form.data.prediction_type ? 'Select betting tip' : 'Select prediction type first'} />
@@ -415,6 +421,8 @@ export function PredictionForm({ action, method, lookup, initialValues, submitLa
                         Prediction value is the exact betting tip inside that market, for example `1`, `X2`, `Yes`, or `Over 2.5`.
                     </p>
                 </Field>
+                </div>
+                
 
                 <div className="space-y-2 lg:col-span-2">
                     <Label>Predicted Score</Label>
