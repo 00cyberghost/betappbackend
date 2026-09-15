@@ -3,8 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 class AppProfileController extends Controller
 {
@@ -12,7 +16,7 @@ class AppProfileController extends Controller
     {
         $user = $request->user()->load([
             'predictionComments' => fn ($query) => $query->with('prediction:id,home_team_name,away_team_name')->latest()->limit(10),
-            'predictions' => fn ($query) => $query->latest()->limit(10),
+            'predictions' => fn ($query) => $query->latest()->limit(50),
         ]);
         $authorityScore = $user->predictions()->sum('likes_count') + ($user->predictions()->sum('comments_count') * 2);
 
@@ -80,6 +84,33 @@ class AppProfileController extends Controller
                 'is_admin' => $user->is_admin,
                 'joined_at' => optional($user->created_at)?->toDateString(),
             ],
+        ]);
+    }
+
+    public function destroy(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        DB::transaction(function () use ($user) {
+            $user->deviceTokens()->delete();
+            $user->notifications()->delete();
+
+            $user->forceFill([
+                'name' => 'Deleted User',
+                'email' => sprintf('deleted-user-%d-%s@deleted.betextract.local', $user->id, (string) Str::uuid()),
+                'google_id' => null,
+                'phone' => null,
+                'avatar_url' => null,
+                'bio' => null,
+                'password' => Hash::make(Str::random(48)),
+                'api_token' => null,
+                'account_deleted_at' => now(),
+            ])->save();
+        });
+
+        return response()->json([
+            'message' => 'Your account has been deleted.',
         ]);
     }
 }

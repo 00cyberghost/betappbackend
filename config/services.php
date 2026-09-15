@@ -44,4 +44,8 @@ return [
         'credentials' => env('FIREBASE_CREDENTIALS'),
     ],
 
+    'google' => [
+        'client_ids' => array_filter(array_map('trim', explode(',', (string) env('GOOGLE_CLIENT_IDS', '')))),
+    ],
+
 ];

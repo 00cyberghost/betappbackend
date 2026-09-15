@@ -33,10 +33,12 @@ Route::prefix('football')->group(function () {
 Route::prefix('app')->group(function () {
     Route::post('/register', [AppAuthController::class, 'register']);
     Route::post('/login', [AppAuthController::class, 'login']);
+    Route::post('/auth/google', [AppAuthController::class, 'google']);
 
     Route::middleware('app.auth')->group(function () {
         Route::post('/logout', [AppAuthController::class, 'logout']);
         Route::get('/me', [AppProfileController::class, 'show']);
+        Route::delete('/me', [AppProfileController::class, 'destroy']);
         Route::put('/profile', [AppProfileController::class, 'update']);
         Route::post('/predictions', [AppPredictionController::class, 'store']);
         Route::post('/predictions/{prediction}/like', [AppInteractionController::class, 'toggleLike']);

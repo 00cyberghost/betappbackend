@@ -21,7 +21,7 @@ class AuthenticateAppApiToken
             ->where('api_token', hash('sha256', $token))
             ->first();
 
-        if (! $user) {
+        if (! $user || $user->account_deleted_at) {
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 

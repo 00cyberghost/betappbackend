@@ -36,6 +36,7 @@ class AppFootballFeedController extends Controller
                 'country_code' => $country?->code,
                 'country_flag' => $country?->flag,
                 'season' => $fixture['league']['season'] ?? null,
+                'date' => $fixture['fixture']['date'] ?? null,
                 'home_team' => $fixture['teams']['home']['name'] ?? 'Home',
                 'away_team' => $fixture['teams']['away']['name'] ?? 'Away',
                 'home_team_id' => $fixture['teams']['home']['id'] ?? null,

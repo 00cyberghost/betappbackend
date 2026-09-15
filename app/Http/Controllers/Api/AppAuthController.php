@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
@@ -59,6 +61,52 @@ class AppAuthController extends Controller
         ]);
     }
 
+    public function google(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'id_token' => ['required', 'string'],
+        ]);
+
+        try {
+            $googleUser = $this->verifyGoogleToken($data['id_token']);
+        } catch (RequestException) {
+            return response()->json(['message' => 'Unable to verify Google account right now.'], 422);
+        }
+
+        if (! $googleUser || empty($googleUser['email']) || empty($googleUser['sub'])) {
+            return response()->json(['message' => 'Invalid Google account response.'], 422);
+        }
+
+        $user = User::query()
+            ->where('google_id', $googleUser['sub'])
+            ->orWhere('email', $googleUser['email'])
+            ->first();
+
+        if ($user) {
+            $user->forceFill([
+                'google_id' => $user->google_id ?: $googleUser['sub'],
+                'avatar_url' => $user->avatar_url ?: ($googleUser['picture'] ?? null),
+                'email_verified_at' => $user->email_verified_at ?: now(),
+            ])->save();
+        } else {
+            $user = User::create([
+                'name' => $googleUser['name'] ?? Str::before($googleUser['email'], '@'),
+                'email' => $googleUser['email'],
+                'google_id' => $googleUser['sub'],
+                'avatar_url' => $googleUser['picture'] ?? null,
+                'password' => Hash::make(Str::random(40)),
+                'email_verified_at' => now(),
+            ]);
+        }
+
+        $token = $this->issueToken($user);
+
+        return response()->json([
+            'token' => $token,
+            'user' => $this->userPayload($user->fresh()),
+        ]);
+    }
+
     public function logout(Request $request): JsonResponse
     {
         $request->user()->forceFill([
@@ -79,6 +127,29 @@ class AppAuthController extends Controller
         ])->save();
 
         return $plainTextToken;
+    }
+
+    protected function verifyGoogleToken(string $idToken): ?array
+    {
+        $payload = Http::acceptJson()
+            ->timeout(10)
+            ->get('https://oauth2.googleapis.com/tokeninfo', [
+                'id_token' => $idToken,
+            ])
+            ->throw()
+            ->json();
+
+        $allowedClientIds = config('services.google.client_ids', []);
+
+        if (! $allowedClientIds || ! in_array($payload['aud'] ?? null, $allowedClientIds, true)) {
+            return null;
+        }
+
+        if (($payload['email_verified'] ?? 'false') !== 'true') {
+            return null;
+        }
+
+        return $payload;
     }
 
     protected function userPayload(User $user): array
