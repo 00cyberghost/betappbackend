@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\ContactMessageController;
+use App\Http\Controllers\Admin\MatchHighlightController;
 use App\Http\Controllers\Admin\NotificationController;
 use App\Http\Controllers\Admin\PredictionController;
 use Illuminate\Support\Facades\Route;
@@ -20,6 +22,11 @@ Route::middleware(['auth', 'verified', 'admin'])->group(function () {
     Route::delete('dashboard/predictions/{prediction}', [PredictionController::class, 'destroy']);
     Route::get('dashboard/notifications', [NotificationController::class, 'index']);
     Route::post('dashboard/notifications', [NotificationController::class, 'store']);
+    Route::get('dashboard/contact-messages', [ContactMessageController::class, 'index']);
+    Route::patch('dashboard/contact-messages/{contactMessage}/read', [ContactMessageController::class, 'markRead']);
+    Route::get('dashboard/match-highlights', [MatchHighlightController::class, 'index']);
+    Route::post('dashboard/match-highlights', [MatchHighlightController::class, 'store']);
+    Route::delete('dashboard/match-highlights/{matchHighlight}', [MatchHighlightController::class, 'destroy']);
 });
 
 require __DIR__.'/settings.php';

@@ -146,7 +146,7 @@ class PredictionController extends Controller
             'status' => ['required', 'in:draft,published,archived,pending_review'],
             'scope' => ['required', 'in:editorial,community'],
             'source' => ['required', 'in:api_football,manual'],
-            'category' => ['required', 'in:today_prediction,upcoming_matches,football_trend,popular_matches,community_prediction,ai_prediction'],
+            'category' => ['required', 'in:today_prediction,upcoming_matches,football_trend,popular_matches,draw_bet,community_prediction,ai_prediction'],
         ]);
     }
 
@@ -157,6 +157,7 @@ class PredictionController extends Controller
             ['value' => 'upcoming_matches', 'label' => 'Upcoming Matches'],
             ['value' => 'football_trend', 'label' => 'Football Trend'],
             ['value' => 'popular_matches', 'label' => 'Popular Matches'],
+            ['value' => 'draw_bet', 'label' => 'Draw Bet'],
         ];
     }
 

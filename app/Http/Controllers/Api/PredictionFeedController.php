@@ -57,6 +57,7 @@ class PredictionFeedController extends Controller
             'football_trend' => $this->predictionCollection('football_trend', 8, $selectedDate),
             'popular_matches' => $this->predictionCollection('popular_matches', 8, $selectedDate),
             'community_prediction' => $this->predictionCollection('community_prediction', 8, $selectedDate),
+            'draw_bet' => $this->predictionCollection('draw_bet', 8, $selectedDate),
         ];
 
         return response()->json([
@@ -86,7 +87,7 @@ class PredictionFeedController extends Controller
             'away_team_logo' => $prediction->away_team_logo,
             'match_starts_at' => optional($prediction->match_starts_at)?->toIso8601String(),
             'prediction_type' => $prediction->prediction_type,
-            'prediction_value' => $prediction->prediction_value,
+            'prediction_value' => $this->normalizePredictionValue($prediction->prediction_value),
             'display_tip' => $this->displayTip($prediction),
             'predicted_score_home' => $prediction->predicted_score_home,
             'predicted_score_away' => $prediction->predicted_score_away,
@@ -232,7 +233,7 @@ class PredictionFeedController extends Controller
 
     protected function displayTip(Prediction $prediction): string
     {
-        $value = trim((string) $prediction->prediction_value);
+        $value = trim($this->normalizePredictionValue($prediction->prediction_value));
         $type = strtolower(trim((string) $prediction->prediction_type));
 
         if (in_array(strtoupper($value), ['1', '2', 'X', '1X', 'X2', '12'], true)) {
@@ -264,5 +265,18 @@ class PredictionFeedController extends Controller
         }
 
         return '-';
+    }
+
+    protected function normalizePredictionValue(string|int|float|null $value): string
+    {
+        $normalized = strtolower(trim((string) $value));
+        $normalized = (string) preg_replace('/[^a-z0-9]+/', ' ', $normalized);
+        $normalized = trim($normalized);
+
+        if ($normalized === '' || $normalized === 'ai tip' || $normalized === 'ai prediction') {
+            return '0';
+        }
+
+        return (string) $value;
     }
 }

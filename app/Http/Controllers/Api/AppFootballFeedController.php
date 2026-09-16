@@ -105,6 +105,7 @@ class AppFootballFeedController extends Controller
         $items = collect($payload['response'] ?? [])
             ->map(fn (array $league) => $this->mapCompetition($league))
             ->filter(fn (array $item) => $item['id'] && $item['name'])
+            ->filter(fn (array $item) => $this->isCurrentOrFutureCompetition($item))
             ->values();
 
         $topLeagues = $this->topLeagues($apiFootballService, $items);
@@ -206,6 +207,8 @@ class AppFootballFeedController extends Controller
 
     protected function mapCompetition(array $league): array
     {
+        $season = $this->currentOrFutureSeason($league['seasons'] ?? []);
+
         return [
             'id' => $league['league']['id'] ?? null,
             'name' => $league['league']['name'] ?? null,
@@ -213,13 +216,13 @@ class AppFootballFeedController extends Controller
             'logo' => $league['league']['logo'] ?? null,
             'country' => $league['country']['name'] ?? null,
             'flag' => $league['country']['flag'] ?? null,
-            'season' => collect($league['seasons'] ?? [])->firstWhere('current', true)['year'] ?? null,
+            'season' => $season,
         ];
     }
 
     protected function topLeagues(ApiFootballService $apiFootballService, $items)
     {
-        $topIds = [39, 2, 3, 848, 140, 135, 78, 61, 253, 71, 307, 128, 262, 94, 203];
+        $topIds = $this->topLeagueIds();
 
         $byId = $items->keyBy('id');
 
@@ -242,6 +245,7 @@ class AppFootballFeedController extends Controller
                 }
             })
             ->filter()
+            ->filter(fn (array $item) => $this->isCurrentOrFutureCompetition($item))
             ->values();
     }
 
@@ -266,9 +270,11 @@ class AppFootballFeedController extends Controller
 
     protected function latestLeagueMatches(ApiFootballService $apiFootballService, $topLeagues): array
     {
+        $today = now('Africa/Lagos')->toDateString();
+        $futureLimit = now('Africa/Lagos')->addDays(2)->toDateString();
+
         return $topLeagues
-            ->take(6)
-            ->flatMap(function (array $league) use ($apiFootballService) {
+            ->flatMap(function (array $league) use ($apiFootballService, $today, $futureLimit) {
                 if (empty($league['id']) || empty($league['season'])) {
                     return [];
                 }
@@ -277,7 +283,8 @@ class AppFootballFeedController extends Controller
                     $payload = $apiFootballService->fixtures([
                         'league' => $league['id'],
                         'season' => $league['season'],
-                        'last' => 3,
+                        'from' => $today,
+                        'to' => $futureLimit,
                         'timezone' => 'Africa/Lagos',
                     ]);
                 } catch (\Throwable) {
@@ -305,10 +312,47 @@ class AppFootballFeedController extends Controller
                 });
             })
             ->filter(fn (array $item) => $item['id'])
-            ->sortByDesc('date')
+            ->filter(function (array $item) use ($today, $futureLimit) {
+                if (empty($item['date'])) {
+                    return false;
+                }
+
+                $date = substr((string) $item['date'], 0, 10);
+
+                return $date >= $today && $date <= $futureLimit;
+            })
+            ->sortBy('date')
             ->take(20)
             ->values()
             ->all();
+    }
+
+    protected function topLeagueIds(): array
+    {
+        return [39, 2, 3, 848, 140, 135, 78, 61, 253, 71, 307, 128, 262, 94, 203];
+    }
+
+    protected function currentOrFutureSeason(array $seasons): ?int
+    {
+        $current = collect($seasons)->firstWhere('current', true);
+
+        if (! empty($current['year'])) {
+            return (int) $current['year'];
+        }
+
+        $currentYear = (int) now('Africa/Lagos')->year;
+
+        return collect($seasons)
+            ->pluck('year')
+            ->filter(fn ($year) => is_numeric($year) && (int) $year >= $currentYear)
+            ->sort()
+            ->map(fn ($year) => (int) $year)
+            ->first();
+    }
+
+    protected function isCurrentOrFutureCompetition(array $item): bool
+    {
+        return ! empty($item['season']) && (int) $item['season'] >= (int) now('Africa/Lagos')->year;
     }
 
     protected function normalizeCountryName(?string $countryName): string

@@ -70,7 +70,7 @@ type PredictionFormValues = {
     status: 'draft' | 'published' | 'archived' | 'pending_review';
     scope: 'editorial' | 'community';
     source: 'api_football' | 'manual';
-    category: 'today_prediction' | 'upcoming_matches' | 'football_trend' | 'popular_matches' | 'community_prediction' | 'ai_prediction';
+    category: 'today_prediction' | 'upcoming_matches' | 'football_trend' | 'popular_matches' | 'draw_bet' | 'community_prediction' | 'ai_prediction';
 };
 
 type Props = {

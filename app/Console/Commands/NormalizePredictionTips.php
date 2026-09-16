@@ -78,6 +78,11 @@ class NormalizePredictionTips extends Command
         $homeTeam = trim((string) $prediction->home_team_name);
         $awayTeam = trim((string) $prediction->away_team_name);
         $normalizedValue = strtolower($value);
+        $missingValue = $this->isMissingAiTip($value);
+
+        if ($missingValue) {
+            return ['prediction_type' => 'AI Prediction', 'prediction_value' => '0'];
+        }
 
         if ($value !== '' && $homeTeam !== '' && strcasecmp($value, $homeTeam) === 0) {
             return ['prediction_type' => '1X2', 'prediction_value' => '1'];
@@ -99,5 +104,14 @@ class NormalizePredictionTips extends Command
         }
 
         return null;
+    }
+
+    protected function isMissingAiTip(string $value): bool
+    {
+        $normalized = strtolower(trim($value));
+        $normalized = (string) preg_replace('/[^a-z0-9]+/', ' ', $normalized);
+        $normalized = trim($normalized);
+
+        return $normalized === '' || $normalized === 'ai tip' || $normalized === 'ai prediction';
     }
 }

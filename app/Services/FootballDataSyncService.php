@@ -374,7 +374,20 @@ class FootballDataSyncService
             }
         }
 
-        return ['AI Prediction', str((string) ($winner ?? $underOver ?? 'AI Tip'))->limit(100)->toString()];
+        return ['AI Prediction', $this->normalizePredictionValue($winner ?? $underOver ?? '0')];
+    }
+
+    protected function normalizePredictionValue(string|int|float|null $value): string
+    {
+        $normalized = strtolower(trim((string) $value));
+        $normalized = (string) preg_replace('/[^a-z0-9]+/', ' ', $normalized);
+        $normalized = trim($normalized);
+
+        if ($normalized === '' || $normalized === 'ai tip' || $normalized === 'ai prediction') {
+            return '0';
+        }
+
+        return str((string) $value)->limit(100)->toString();
     }
 
     protected function attempt(callable $callback): int
