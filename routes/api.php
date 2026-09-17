@@ -37,6 +37,8 @@ Route::prefix('app')->group(function () {
     Route::post('/register', [AppAuthController::class, 'register']);
     Route::post('/login', [AppAuthController::class, 'login']);
     Route::post('/auth/google', [AppAuthController::class, 'google']);
+    Route::post('/forgot-password', [AppAuthController::class, 'forgotPassword']);
+    Route::post('/reset-password', [AppAuthController::class, 'resetPassword']);
 
     Route::middleware('app.auth')->group(function () {
         Route::post('/logout', [AppAuthController::class, 'logout']);
