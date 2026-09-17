@@ -3,14 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AppPasswordResetCode;
 use App\Models\User;
-use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password as PasswordRule;
 use Illuminate\Validation\ValidationException;
@@ -117,50 +117,80 @@ class AppAuthController extends Controller
             'email' => ['required', 'email'],
         ]);
 
-        $status = Password::broker()->sendResetLink([
-            'email' => $data['email'],
-        ]);
+        $email = strtolower(trim($data['email']));
+        $user = User::query()->where('email', $email)->first();
 
-        if ($status !== Password::RESET_LINK_SENT) {
-            throw ValidationException::withMessages([
-                'email' => __($status),
+        if ($user) {
+            $code = (string) random_int(100000, 999999);
+
+            AppPasswordResetCode::query()
+                ->where('email', $email)
+                ->whereNull('used_at')
+                ->delete();
+
+            AppPasswordResetCode::create([
+                'user_id' => $user->id,
+                'email' => $email,
+                'code_hash' => Hash::make($code),
+                'expires_at' => now()->addMinutes(15),
             ]);
+
+            Mail::raw(
+                "Your Focliq password reset code is {$code}.\n\nThis code expires in 15 minutes. If you did not request it, you can ignore this email.",
+                fn ($message) => $message
+                    ->to($user->email)
+                    ->subject('Your Focliq password reset code')
+            );
         }
 
         return response()->json([
-            'message' => __($status),
+            'message' => 'If this email exists, a password reset code has been sent. The code expires in 15 minutes.',
         ]);
     }
 
     public function resetPassword(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'token' => ['required', 'string'],
             'email' => ['required', 'email'],
+            'code' => ['required', 'digits:6'],
             'password' => ['required', 'confirmed', PasswordRule::defaults()],
         ]);
 
-        $status = Password::broker()->reset(
-            $data,
-            function (User $user, string $password): void {
-                $user->forceFill([
-                    'password' => Hash::make($password),
-                    'remember_token' => Str::random(60),
-                    'api_token' => null,
-                ])->save();
+        $email = strtolower(trim($data['email']));
+        $resetCode = AppPasswordResetCode::query()
+            ->with('user')
+            ->where('email', $email)
+            ->whereNull('used_at')
+            ->latest()
+            ->first();
 
-                event(new PasswordReset($user));
+        if (
+            ! $resetCode ||
+            $resetCode->expires_at->isPast() ||
+            $resetCode->attempts >= 5 ||
+            ! Hash::check($data['code'], $resetCode->code_hash)
+        ) {
+            if ($resetCode && $resetCode->attempts < 5) {
+                $resetCode->increment('attempts');
             }
-        );
 
-        if ($status !== Password::PASSWORD_RESET) {
             throw ValidationException::withMessages([
-                'email' => __($status),
+                'code' => 'The reset code is invalid or has expired.',
             ]);
         }
 
+        $resetCode->user->forceFill([
+            'password' => Hash::make($data['password']),
+            'remember_token' => Str::random(60),
+            'api_token' => null,
+        ])->save();
+
+        $resetCode->update([
+            'used_at' => now(),
+        ]);
+
         return response()->json([
-            'message' => __($status),
+            'message' => 'Your password has been reset. You can now log in with your new password.',
         ]);
     }
 
