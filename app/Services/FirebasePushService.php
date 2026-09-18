@@ -2,12 +2,10 @@
 
 namespace App\Services;
 
+use App\Models\UserDeviceToken;
 use Google\Auth\Credentials\ServiceAccountCredentials;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Kreait\Firebase\Factory;
-use Kreait\Firebase\Messaging\CloudMessage;
-use Kreait\Firebase\Messaging\Notification;
 use Throwable;
 
 class FirebasePushService
@@ -28,27 +26,7 @@ class FirebasePushService
 
         $stringData = $this->stringifyData($data);
 
-        try {
-            $messaging = (new Factory())
-                ->withServiceAccount($credentialsPath)
-                ->createMessaging();
-
-            $notification = Notification::create($title, $body, $imageUrl);
-
-            foreach ($tokens as $token) {
-                $message = CloudMessage::withTarget('token', $token)
-                    ->withNotification($notification)
-                    ->withData($stringData);
-
-                $messaging->send($message);
-            }
-        } catch (Throwable $exception) {
-            Log::warning('Kreait push delivery failed, falling back to FCM HTTP v1.', [
-                'message' => $exception->getMessage(),
-            ]);
-
-            $this->sendViaHttpV1($credentialsPath, $tokens, $title, $body, $stringData, $imageUrl);
-        }
+        $this->sendViaHttpV1($credentialsPath, $tokens, $title, $body, $stringData, $imageUrl);
     }
 
     protected function sendViaHttpV1(
@@ -126,9 +104,23 @@ class FirebasePushService
                     ->post("https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send", $payload);
 
                 if ($response->failed()) {
+                    $errorCode = $this->firebaseErrorCode($response->json() ?? []);
+
+                    if ($this->isUnregisteredTokenError($response->status(), $errorCode)) {
+                        UserDeviceToken::query()->where('token', $token)->delete();
+
+                        Log::info('Removed unregistered Firebase device token.', [
+                            'error_code' => $errorCode,
+                            'token_suffix' => substr($token, -12),
+                        ]);
+
+                        continue;
+                    }
+
                     Log::warning('Firebase HTTP v1 push delivery failed.', [
                         'status' => $response->status(),
                         'body' => $response->json() ?? $response->body(),
+                        'error_code' => $errorCode,
                         'token_suffix' => substr($token, -12),
                     ]);
                 }
@@ -153,5 +145,27 @@ class FirebasePushService
             fn ($value) => is_scalar($value) ? (string) $value : json_encode($value),
             $data
         );
+    }
+
+    protected function firebaseErrorCode(array $payload): ?string
+    {
+        $error = $payload['error'] ?? [];
+
+        foreach ($error['details'] ?? [] as $detail) {
+            if (($detail['@type'] ?? null) === 'type.googleapis.com/google.firebase.fcm.v1.FcmError') {
+                return $detail['errorCode'] ?? null;
+            }
+        }
+
+        return $error['status'] ?? $error['message'] ?? null;
+    }
+
+    protected function isUnregisteredTokenError(int $status, ?string $errorCode): bool
+    {
+        return $status === 404 && in_array($errorCode, [
+            'UNREGISTERED',
+            'NOT_FOUND',
+            'NotRegistered',
+        ], true);
     }
 }
