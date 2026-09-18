@@ -10,6 +10,8 @@ use Throwable;
 
 class FirebasePushService
 {
+    public const ALL_USERS_TOPIC = 'all-users';
+
     public function sendToTokens(array $tokens, string $title, string $body, array $data = [], ?string $imageUrl = null): void
     {
         $tokens = collect($tokens)
@@ -26,12 +28,35 @@ class FirebasePushService
 
         $stringData = $this->stringifyData($data);
 
-        $this->sendViaHttpV1($credentialsPath, $tokens, $title, $body, $stringData, $imageUrl);
+        $targets = collect($tokens)
+            ->map(fn (string $token) => ['token' => $token])
+            ->all();
+
+        $this->sendViaHttpV1($credentialsPath, $targets, $title, $body, $stringData, $imageUrl);
+    }
+
+    public function sendToTopic(string $topic, string $title, string $body, array $data = [], ?string $imageUrl = null): void
+    {
+        $topic = trim($topic);
+        $credentialsPath = (string) config('services.firebase.credentials');
+
+        if ($topic === '' || $credentialsPath === '') {
+            return;
+        }
+
+        $this->sendViaHttpV1(
+            $credentialsPath,
+            [['topic' => $topic]],
+            $title,
+            $body,
+            $this->stringifyData($data),
+            $imageUrl,
+        );
     }
 
     protected function sendViaHttpV1(
         string $credentialsPath,
-        array $tokens,
+        array $targets,
         string $title,
         string $body,
         array $data,
@@ -70,10 +95,19 @@ class FirebasePushService
                 return;
             }
 
-            foreach ($tokens as $token) {
+            foreach ($targets as $target) {
+                $messageTarget = array_intersect_key($target, [
+                    'token' => true,
+                    'topic' => true,
+                    'condition' => true,
+                ]);
+
+                if ($messageTarget === []) {
+                    continue;
+                }
+
                 $payload = [
-                    'message' => [
-                        'token' => $token,
+                    'message' => array_merge($messageTarget, [
                         'notification' => array_filter([
                             'title' => $title,
                             'body' => $body,
@@ -96,7 +130,7 @@ class FirebasePushService
                                 ],
                             ],
                         ],
-                    ],
+                    ]),
                 ];
 
                 $response = Http::withToken($accessToken)
@@ -105,13 +139,14 @@ class FirebasePushService
 
                 if ($response->failed()) {
                     $errorCode = $this->firebaseErrorCode($response->json() ?? []);
+                    $targetToken = $messageTarget['token'] ?? null;
 
-                    if ($this->isUnregisteredTokenError($response->status(), $errorCode)) {
-                        UserDeviceToken::query()->where('token', $token)->delete();
+                    if ($targetToken && $this->isUnregisteredTokenError($response->status(), $errorCode)) {
+                        UserDeviceToken::query()->where('token', $targetToken)->delete();
 
                         Log::info('Removed unregistered Firebase device token.', [
                             'error_code' => $errorCode,
-                            'token_suffix' => substr($token, -12),
+                            'token_suffix' => substr($targetToken, -12),
                         ]);
 
                         continue;
@@ -121,7 +156,10 @@ class FirebasePushService
                         'status' => $response->status(),
                         'body' => $response->json() ?? $response->body(),
                         'error_code' => $errorCode,
-                        'token_suffix' => substr($token, -12),
+                        'target_type' => array_key_first($messageTarget),
+                        'target' => isset($messageTarget['token'])
+                            ? substr($messageTarget['token'], -12)
+                            : ($messageTarget['topic'] ?? $messageTarget['condition'] ?? null),
                     ]);
                 }
             }

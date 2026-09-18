@@ -18,13 +18,21 @@ type UserItem = {
     avatar_url?: string | null;
 };
 
-export default function NotificationsIndex({ users }: { users: UserItem[] }) {
+type TopicItem = {
+    key: string;
+    label: string;
+    description: string;
+    default: boolean;
+};
+
+export default function NotificationsIndex({ users, topics }: { users: UserItem[]; topics: TopicItem[] }) {
     const { flash } = usePage<{ flash?: { success?: string } }>().props;
     const form = useForm({
         title: '',
         body: '',
         image: null as File | null,
         audience: 'all',
+        topic: topics[0]?.key ?? '',
         user_ids: [] as number[],
     });
 
@@ -84,7 +92,7 @@ export default function NotificationsIndex({ users }: { users: UserItem[] }) {
                             </p>
                         </Field>
 
-                        <div className="grid gap-4 md:grid-cols-2">
+                        <div className="grid gap-4 md:grid-cols-3">
                             <Button
                                 type="button"
                                 variant={form.data.audience === 'all' ? 'default' : 'outline'}
@@ -99,7 +107,33 @@ export default function NotificationsIndex({ users }: { users: UserItem[] }) {
                             >
                                 Selected Users
                             </Button>
+                            <Button
+                                type="button"
+                                variant={form.data.audience === 'topic' ? 'default' : 'outline'}
+                                onClick={() => form.setData('audience', 'topic')}
+                            >
+                                Topic
+                            </Button>
                         </div>
+
+                        {form.data.audience === 'topic' && (
+                            <Field label="Notification Topic">
+                                <select
+                                    className="h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                                    value={form.data.topic}
+                                    onChange={(event) => form.setData('topic', event.target.value)}
+                                >
+                                    {topics.map((topic) => (
+                                        <option key={topic.key} value={topic.key}>
+                                            {topic.label}
+                                        </option>
+                                    ))}
+                                </select>
+                                <p className="text-xs text-muted-foreground">
+                                    Topic broadcasts are sent once through Firebase and delivered only to users subscribed to that topic.
+                                </p>
+                            </Field>
+                        )}
 
                         {form.data.audience === 'selected' && (
                             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">

@@ -50,6 +50,8 @@ Route::prefix('app')->group(function () {
         Route::post('/predictions/{prediction}/comment', [AppInteractionController::class, 'comment']);
         Route::post('/predictions/{prediction}/share', [AppInteractionController::class, 'share']);
         Route::get('/notifications', [AppNotificationController::class, 'index']);
+        Route::get('/notifications/preferences', [AppNotificationController::class, 'preferences']);
+        Route::put('/notifications/preferences', [AppNotificationController::class, 'updatePreferences']);
         Route::post('/notifications/device-token', [AppNotificationController::class, 'storeDeviceToken']);
         Route::post('/notifications/read-all', [AppNotificationController::class, 'markAllRead']);
         Route::post('/contact-messages', [AppContactMessageController::class, 'store']);

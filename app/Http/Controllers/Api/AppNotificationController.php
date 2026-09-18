@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\UserDeviceToken;
+use App\Services\NotificationTopicService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -47,6 +48,31 @@ class AppNotificationController extends Controller
         );
 
         return response()->json(['message' => 'Device token saved.']);
+    }
+
+    public function preferences(Request $request, NotificationTopicService $notificationTopicService): JsonResponse
+    {
+        return response()->json([
+            'topics' => $notificationTopicService->options(),
+            'selected_topics' => $notificationTopicService->selectedFor($request->user()),
+        ]);
+    }
+
+    public function updatePreferences(Request $request, NotificationTopicService $notificationTopicService): JsonResponse
+    {
+        $data = $request->validate([
+            'selected_topics' => ['array'],
+            'selected_topics.*' => ['string', 'in:' . implode(',', $notificationTopicService->keys())],
+        ]);
+
+        $request->user()->forceFill([
+            'notification_topics' => $notificationTopicService->normalize($data['selected_topics'] ?? []),
+        ])->save();
+
+        return response()->json([
+            'topics' => $notificationTopicService->options(),
+            'selected_topics' => $notificationTopicService->selectedFor($request->user()),
+        ]);
     }
 
     public function markAllRead(Request $request): JsonResponse
