@@ -18,62 +18,19 @@ class FootballDataSyncService
 
     public function syncAll(): array
     {
-        $live = $this->attempt(fn () => $this->syncLiveSnapshot());
         $competitions = $this->attempt(fn () => $this->syncCompetitionsSnapshot());
         $updates = $this->attempt(fn () => $this->syncUpdatesSnapshot());
         $aiPredictions = $this->attempt(fn () => $this->syncAiPredictions());
         $countries = $this->attempt(fn () => $this->syncCountries());
         $metadata = $this->attempt(fn () => $this->syncPredictionMetadata());
-        $this->attempt(fn () => $this->syncEditorialHighlightsFromLive());
 
         return [
-            'live' => $live,
             'competitions' => $competitions,
             'updates' => $updates,
             'ai_predictions' => $aiPredictions,
             'countries' => $countries,
             'metadata' => $metadata,
         ];
-    }
-
-    public function syncLiveSnapshot(): int
-    {
-        $countries = $this->countriesByNormalizedName();
-        $payload = $this->apiFootballService->fixtures([
-            'live' => 'all',
-            'timezone' => 'Africa/Lagos',
-        ]);
-
-        $items = collect($payload['response'] ?? [])
-            ->map(function (array $fixture) use ($countries) {
-                $country = $this->countryFromName($countries, $fixture['league']['country'] ?? null);
-
-                return [
-                    'id' => $fixture['fixture']['id'] ?? null,
-                    'league' => $fixture['league']['name'] ?? 'League',
-                    'league_id' => $fixture['league']['id'] ?? null,
-                    'league_logo' => $fixture['league']['logo'] ?: ($country?->flag ?? null),
-                    'season' => $fixture['league']['season'] ?? null,
-                    'date' => $fixture['fixture']['date'] ?? null,
-                    'home_team' => $fixture['teams']['home']['name'] ?? 'Home',
-                    'away_team' => $fixture['teams']['away']['name'] ?? 'Away',
-                    'home_team_id' => $fixture['teams']['home']['id'] ?? null,
-                    'away_team_id' => $fixture['teams']['away']['id'] ?? null,
-                    'home_logo' => $fixture['teams']['home']['logo'] ?? null,
-                    'away_logo' => $fixture['teams']['away']['logo'] ?? null,
-                    'elapsed' => $fixture['fixture']['status']['elapsed'] ?? null,
-                    'short_status' => $fixture['fixture']['status']['short'] ?? null,
-                    'home_score' => $fixture['goals']['home'] ?? 0,
-                    'away_score' => $fixture['goals']['away'] ?? 0,
-                ];
-            })
-            ->filter(fn (array $item) => $item['id'])
-            ->values()
-            ->all();
-
-        $this->snapshotService->put('live', $items);
-
-        return count($items);
     }
 
     public function syncCompetitionsSnapshot(): int
@@ -167,7 +124,7 @@ class FootballDataSyncService
         }
 
         $fixtures = collect($this->apiFootballService->fixtures([
-            'live' => 'all',
+            'next' => 50,
             'timezone' => 'Africa/Lagos',
         ])['response'] ?? [])
             ->unique(fn (array $fixture) => $fixture['fixture']['id'] ?? null)
@@ -212,58 +169,6 @@ class FootballDataSyncService
         }
 
         return $created;
-    }
-
-    public function syncEditorialHighlightsFromLive(): int
-    {
-        $admin = User::query()->where('email', 'ozorclinton@gmail.com')->first();
-
-        if (! $admin) {
-            return 0;
-        }
-
-        $fixtures = collect($this->apiFootballService->fixtures([
-            'live' => 'all',
-            'timezone' => 'Africa/Lagos',
-        ])['response'] ?? [])->take(4)->values();
-
-        $categories = ['today_prediction', 'popular_matches', 'football_trend'];
-        $written = 0;
-
-        foreach ($categories as $index => $category) {
-            $fixture = $fixtures->get($index);
-
-            if (! $fixture || empty($fixture['fixture']['id'])) {
-                continue;
-            }
-
-            try {
-                $predictionPayload = collect($this->apiFootballService->fixturePrediction($fixture['fixture']['id'])['response'] ?? [])->first();
-                $mapped = $this->mapAiPrediction($fixture, $predictionPayload);
-
-                Prediction::updateOrCreate(
-                    [
-                        'fixture_id' => $fixture['fixture']['id'],
-                        'category' => $category,
-                    ],
-                    [
-                        ...$mapped,
-                        'user_id' => $admin->id,
-                        'status' => 'published',
-                        'scope' => 'editorial',
-                        'source' => 'api_football',
-                        'category' => $category,
-                        'published_at' => now(),
-                    ]
-                );
-
-                $written++;
-            } catch (\Throwable) {
-                continue;
-            }
-        }
-
-        return $written;
     }
 
     protected function mapAiPrediction(array $fixture, ?array $prediction): array

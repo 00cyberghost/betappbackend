@@ -64,7 +64,7 @@ class PredictionFeedController extends Controller
             'data' => [
                 'sections' => $sections,
                 'selected_date' => $selectedDate->toDateString(),
-                'live_scores' => $snapshotService->get('live'),
+                'live_scores' => [],
                 'competitions' => $snapshotService->get('competitions'),
                 'updates' => $snapshotService->get('updates'),
             ],
