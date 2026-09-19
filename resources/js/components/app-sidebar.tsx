@@ -1,5 +1,5 @@
 import { Link } from '@inertiajs/react';
-import { BookOpen, FolderGit2, Inbox, LayoutGrid, MessageSquareText, PlayCircle } from 'lucide-react';
+import { BookOpen, FolderGit2, Inbox, LayoutGrid, MessageSquareText, PlayCircle, Trophy } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
@@ -41,6 +41,11 @@ const mainNavItems: NavItem[] = [
         title: 'Match Highlights',
         href: '/dashboard/match-highlights',
         icon: PlayCircle,
+    },
+    {
+        title: 'Popular Leagues',
+        href: '/dashboard/popular-leagues',
+        icon: Trophy,
     },
 ];
 

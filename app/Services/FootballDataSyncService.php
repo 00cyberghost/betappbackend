@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Country;
+use App\Models\PopularLeague;
 use App\Models\Prediction;
 use App\Models\User;
 use Illuminate\Support\Carbon;
@@ -123,14 +124,7 @@ class FootballDataSyncService
             return 0;
         }
 
-        $fixtures = collect($this->apiFootballService->fixtures([
-            'next' => 50,
-            'timezone' => 'Africa/Lagos',
-        ])['response'] ?? [])
-            ->unique(fn (array $fixture) => $fixture['fixture']['id'] ?? null)
-            ->filter(fn (array $fixture) => ! empty($fixture['fixture']['id']))
-            ->take(50)
-            ->values();
+        $fixtures = $this->popularLeagueFixtures();
 
         $created = 0;
 
@@ -143,32 +137,104 @@ class FootballDataSyncService
                 }
 
                 $predictionPayload = collect($this->apiFootballService->fixturePrediction($fixtureId)['response'] ?? [])->first();
+
+                if (! $this->hasUsefulPrediction($predictionPayload)) {
+                    continue;
+                }
+
                 $mapped = $this->mapAiPrediction($fixture, $predictionPayload);
 
-                Prediction::updateOrCreate(
-                    [
-                        'fixture_id' => $fixtureId,
-                        'source' => 'api_football',
-                        'category' => 'ai_prediction',
-                    ],
-                    [
-                        ...$mapped,
-                        'user_id' => $admin->id,
-                        'status' => 'published',
-                        'scope' => 'editorial',
-                        'source' => 'api_football',
-                        'category' => 'ai_prediction',
-                        'published_at' => now(),
-                    ]
-                );
+                if ($mapped['prediction_value'] === '0') {
+                    continue;
+                }
 
+                $this->saveSyncedPrediction($fixtureId, $mapped, $admin->id, 'ai_prediction');
                 $created++;
+
+                if (Carbon::parse($mapped['match_starts_at'], 'Africa/Lagos')->greaterThanOrEqualTo(now('Africa/Lagos'))) {
+                    $this->saveSyncedPrediction($fixtureId, $mapped, $admin->id, 'upcoming_matches');
+                    $created++;
+                }
             } catch (\Throwable) {
                 continue;
             }
         }
 
         return $created;
+    }
+
+    protected function saveSyncedPrediction(int $fixtureId, array $mapped, int $adminId, string $category): Prediction
+    {
+        return Prediction::updateOrCreate(
+            [
+                'fixture_id' => $fixtureId,
+                'source' => 'api_football',
+                'category' => $category,
+            ],
+            [
+                ...$mapped,
+                'user_id' => $adminId,
+                'status' => 'published',
+                'scope' => 'editorial',
+                'source' => 'api_football',
+                'category' => $category,
+                'published_at' => now(),
+            ]
+        );
+    }
+
+    protected function popularLeagueFixtures(): Collection
+    {
+        $dates = collect(range(0, 2))
+            ->map(fn (int $offset) => now('Africa/Lagos')->addDays($offset)->toDateString());
+
+        $popularLeagues = PopularLeague::query()
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get();
+
+        if ($popularLeagues->isEmpty()) {
+            return collect();
+        }
+
+        return $popularLeagues
+            ->flatMap(function (PopularLeague $league) use ($dates) {
+                return $dates->flatMap(function (string $date) use ($league) {
+                    try {
+                        $payload = $this->apiFootballService->fixtures(array_filter([
+                            'league' => $league->league_id,
+                            'season' => $league->season ?: now('Africa/Lagos')->year,
+                            'date' => $date,
+                            'timezone' => 'Africa/Lagos',
+                        ]));
+                    } catch (\Throwable) {
+                        return [];
+                    }
+
+                    return $payload['response'] ?? [];
+                });
+            })
+            ->unique(fn (array $fixture) => $fixture['fixture']['id'] ?? null)
+            ->filter(fn (array $fixture) => ! empty($fixture['fixture']['id']))
+            ->values();
+    }
+
+    protected function hasUsefulPrediction(?array $prediction): bool
+    {
+        if (! $prediction || empty($prediction['predictions'])) {
+            return false;
+        }
+
+        $predictions = $prediction['predictions'];
+        $winner = trim((string) ($predictions['winner']['name'] ?? ''));
+        $winnerComment = trim((string) ($predictions['winner']['comment'] ?? ''));
+        $underOver = trim((string) ($predictions['under_over'] ?? ''));
+        $percent = collect($predictions['percent'] ?? [])
+            ->map(fn ($value) => (int) rtrim((string) $value, '%'))
+            ->max();
+
+        return $winner !== '' || $winnerComment !== '' || $underOver !== '' || ((int) $percent) > 0;
     }
 
     protected function mapAiPrediction(array $fixture, ?array $prediction): array

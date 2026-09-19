@@ -25,7 +25,11 @@ class PredictionFeedController extends Controller
             ])
             ->where('status', 'published')
             ->when($category !== '', fn ($query) => $query->where('category', $category))
-            ->latest('published_at')
+            ->when(
+                $category === 'upcoming_matches',
+                fn ($query) => $query->where('match_starts_at', '>=', now('Africa/Lagos'))->orderBy('match_starts_at'),
+                fn ($query) => $query->latest('published_at')
+            )
             ->paginate($limit);
 
         return response()->json([
@@ -53,7 +57,7 @@ class PredictionFeedController extends Controller
         $sections = [
             'today_prediction' => $this->predictionCollection('today_prediction', 8, $selectedDate),
             'ai_prediction' => $this->predictionCollection('ai_prediction', 8, $selectedDate),
-            'upcoming_matches' => $this->predictionCollection('upcoming_matches', 8),
+            'upcoming_matches' => $this->predictionCollection('upcoming_matches', 10),
             'football_trend' => $this->predictionCollection('football_trend', 8, $selectedDate),
             'popular_matches' => $this->predictionCollection('popular_matches', 8, $selectedDate),
             'community_prediction' => $this->predictionCollection('community_prediction', 8, $selectedDate),
@@ -150,7 +154,15 @@ class PredictionFeedController extends Controller
                     $query->whereDate('match_starts_at', $selectedDate->toDateString());
                 }
             )
-            ->latest('published_at')
+            ->when(
+                $category === 'upcoming_matches',
+                fn ($query) => $query->where('match_starts_at', '>=', now('Africa/Lagos'))
+            )
+            ->when(
+                $category === 'upcoming_matches',
+                fn ($query) => $query->orderBy('match_starts_at'),
+                fn ($query) => $query->latest('published_at')
+            )
             ->limit($limit)
             ->get()
             ->map(fn (Prediction $prediction) => $this->transformPrediction($prediction))

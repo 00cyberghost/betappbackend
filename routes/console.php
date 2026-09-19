@@ -18,4 +18,4 @@ Artisan::command('football:sync-now', function (FootballDataSyncService $footbal
     );
 })->purpose('Run football snapshot and AI prediction sync immediately.');
 
-Schedule::command('football:sync-data')->everyFifteenMinutes();
+Schedule::command('football:sync-data')->dailyAt('03:00')->timezone('Africa/Lagos');
