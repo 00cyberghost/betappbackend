@@ -145,23 +145,28 @@ class PredictionFeedController extends Controller
     protected function predictionCollection(string $category, int $limit, ?Carbon $selectedDate = null): array
     {
         return Prediction::query()
+            ->select('predictions.*')
             ->with(['comments' => fn ($query) => $query->latest()->limit(5)->with('user:id,name,avatar_url'), 'user:id,name,avatar_url'])
-            ->where('status', 'published')
-            ->where('category', $category)
+            ->leftJoin('popular_leagues', 'predictions.league_id', '=', 'popular_leagues.league_id')
+            ->where('predictions.status', 'published')
+            ->where('predictions.category', $category)
             ->when(
                 $selectedDate && $category !== 'upcoming_matches',
                 function ($query) use ($selectedDate) {
-                    $query->whereDate('match_starts_at', $selectedDate->toDateString());
+                    $query->whereDate('predictions.match_starts_at', $selectedDate->toDateString());
                 }
             )
             ->when(
                 $category === 'upcoming_matches',
-                fn ($query) => $query->where('match_starts_at', '>=', now('Africa/Lagos'))
+                fn ($query) => $query->where('predictions.match_starts_at', '>=', now('Africa/Lagos'))
             )
             ->when(
                 $category === 'upcoming_matches' || $category === 'ai_prediction',
-                fn ($query) => $query->orderBy('match_starts_at')->orderBy('league_name'),
-                fn ($query) => $query->latest('published_at')
+                fn ($query) => $query
+                    ->orderByRaw('COALESCE(popular_leagues.sort_order, 999999)')
+                    ->orderBy('predictions.match_starts_at')
+                    ->orderBy('predictions.league_name'),
+                fn ($query) => $query->latest('predictions.published_at')
             )
             ->limit($limit)
             ->get()
