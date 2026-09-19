@@ -124,6 +124,8 @@ class FootballDataSyncService
             return 0;
         }
 
+        $this->pruneCurrentDayUpcomingMatches();
+
         $fixtures = $this->popularLeagueFixtures();
 
         $created = 0;
@@ -151,7 +153,7 @@ class FootballDataSyncService
                 $this->saveSyncedPrediction($fixtureId, $mapped, $admin->id, 'ai_prediction');
                 $created++;
 
-                if (Carbon::parse($mapped['match_starts_at'], 'Africa/Lagos')->greaterThanOrEqualTo(now('Africa/Lagos'))) {
+                if (Carbon::parse($mapped['match_starts_at'], 'Africa/Lagos')->isAfter(now('Africa/Lagos')->endOfDay())) {
                     $this->saveSyncedPrediction($fixtureId, $mapped, $admin->id, 'upcoming_matches');
                     $created++;
                 }
@@ -161,6 +163,15 @@ class FootballDataSyncService
         }
 
         return $created;
+    }
+
+    protected function pruneCurrentDayUpcomingMatches(): void
+    {
+        Prediction::query()
+            ->where('source', 'api_football')
+            ->where('category', 'upcoming_matches')
+            ->whereDate('match_starts_at', '<=', now('Africa/Lagos')->toDateString())
+            ->delete();
     }
 
     protected function saveSyncedPrediction(int $fixtureId, array $mapped, int $adminId, string $category): Prediction
