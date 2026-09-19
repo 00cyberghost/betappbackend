@@ -56,7 +56,7 @@ class PredictionFeedController extends Controller
 
         $sections = [
             'today_prediction' => $this->predictionCollection('today_prediction', 8, $selectedDate),
-            'ai_prediction' => $this->predictionCollection('ai_prediction', 8, $selectedDate),
+            'ai_prediction' => $this->predictionCollection('ai_prediction', 80, $selectedDate),
             'upcoming_matches' => $this->predictionCollection('upcoming_matches', 10),
             'football_trend' => $this->predictionCollection('football_trend', 8, $selectedDate),
             'popular_matches' => $this->predictionCollection('popular_matches', 8, $selectedDate),
@@ -159,8 +159,8 @@ class PredictionFeedController extends Controller
                 fn ($query) => $query->where('match_starts_at', '>=', now('Africa/Lagos'))
             )
             ->when(
-                $category === 'upcoming_matches',
-                fn ($query) => $query->orderBy('match_starts_at'),
+                $category === 'upcoming_matches' || $category === 'ai_prediction',
+                fn ($query) => $query->orderBy('match_starts_at')->orderBy('league_name'),
                 fn ($query) => $query->latest('published_at')
             )
             ->limit($limit)
