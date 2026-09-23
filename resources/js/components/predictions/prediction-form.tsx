@@ -46,6 +46,14 @@ type TipItem = {
     description?: string | null;
 };
 
+type FixturePredictionSuggestion = {
+    available: boolean;
+    prediction_type?: string | null;
+    prediction_value?: string | null;
+    probability?: number | null;
+    analysis?: string | null;
+};
+
 type PredictionFormValues = {
     fixture_id: number | null;
     league_id: number | null;
@@ -95,6 +103,8 @@ export function PredictionForm({ action, method, lookup, initialValues, submitLa
     const [fixtureQuery, setFixtureQuery] = useState('');
     const [leagueOptions, setLeagueOptions] = useState<LeagueItem[]>(lookup.leagues ?? []);
     const [fixtureOptions, setFixtureOptions] = useState<FixtureItem[]>([]);
+    const [shouldAutofillPrediction, setShouldAutofillPrediction] = useState(false);
+    const [predictionLookupStatus, setPredictionLookupStatus] = useState<'idle' | 'loading' | 'filled' | 'empty' | 'error'>('idle');
 
     const countries = useMemo(() => lookup.countries ?? [], [lookup.countries]);
     const tips = useMemo(() => lookup.tips ?? [], [lookup.tips]);
@@ -103,7 +113,13 @@ export function PredictionForm({ action, method, lookup, initialValues, submitLa
         [tips]
     );
     const predictionValueOptions = useMemo(
-        () => tips.filter((item) => item.prediction_type === form.data.prediction_type),
+        () => {
+            if (!form.data.prediction_type) {
+                return tips;
+            }
+
+            return tips.filter((item) => item.prediction_type === form.data.prediction_type);
+        },
         [tips, form.data.prediction_type]
     );
 
@@ -223,6 +239,8 @@ export function PredictionForm({ action, method, lookup, initialValues, submitLa
         }
 
         form.setData('fixture_id', fixture.id ? Number(fixture.id) : null);
+        setShouldAutofillPrediction(true);
+        setPredictionLookupStatus('idle');
         form.setData('league_id', fixture.league?.id ? Number(fixture.league.id) : form.data.league_id);
         form.setData('league_name', fixture.league?.name ?? form.data.league_name);
         form.setData('league_logo', fixture.league?.logo ?? form.data.league_logo);
@@ -236,16 +254,76 @@ export function PredictionForm({ action, method, lookup, initialValues, submitLa
     }, [fixtureOptions, fixtureQuery]);
 
     useEffect(() => {
-        if (predictionValueOptions.length === 0) {
+        if (!shouldAutofillPrediction || !form.data.fixture_id) {
             return;
         }
 
-        const hasSelectedValue = predictionValueOptions.some((item) => item.value === form.data.prediction_value);
+        let cancelled = false;
 
-        if (!hasSelectedValue) {
-            form.setData('prediction_value', '');
+        const loadPredictionSuggestion = async () => {
+            setPredictionLookupStatus('loading');
+
+            try {
+                const response = await fetch(`/api/football/fixtures/${form.data.fixture_id}/prediction`, {
+                    headers: { Accept: 'application/json' },
+                });
+                const payload = await response.json();
+                const suggestion = (payload.data ?? {}) as FixturePredictionSuggestion;
+
+                if (cancelled) {
+                    return;
+                }
+
+                if (!suggestion.available) {
+                    setPredictionLookupStatus('empty');
+
+                    return;
+                }
+
+                if (suggestion.prediction_type) {
+                    form.setData('prediction_type', suggestion.prediction_type);
+                }
+
+                if (suggestion.prediction_value) {
+                    form.setData('prediction_value', suggestion.prediction_value);
+                }
+
+                if (suggestion.probability !== undefined) {
+                    form.setData('probability', suggestion.probability);
+                }
+
+                if (suggestion.analysis) {
+                    form.setData('analysis', suggestion.analysis);
+                }
+
+                form.setData('source', 'api_football');
+                setPredictionLookupStatus('filled');
+            } catch {
+                if (!cancelled) {
+                    setPredictionLookupStatus('error');
+                }
+            }
+        };
+
+        void loadPredictionSuggestion();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [shouldAutofillPrediction, form.data.fixture_id]);
+
+    const updatePredictionValue = (input: string) => {
+        const selectedTip = tips.find((tip) => tip.value === input || tip.label === input || `${tip.label} (${tip.value})` === input);
+
+        if (selectedTip) {
+            form.setData('prediction_type', selectedTip.prediction_type);
+            form.setData('prediction_value', selectedTip.value);
+
+            return;
         }
-    }, [predictionValueOptions, form.data.prediction_value]);
+
+        form.setData('prediction_value', input);
+    };
 
     const submit = () => {
         if (method === 'post') {
@@ -306,6 +384,8 @@ export function PredictionForm({ action, method, lookup, initialValues, submitLa
                         onChange={(event) => {
                             form.setData('match_starts_at', event.target.value);
                             setFixtureQuery('');
+                            setShouldAutofillPrediction(false);
+                            setPredictionLookupStatus('idle');
                             form.setData('fixture_id', null);
                         }}
                     />
@@ -370,59 +450,54 @@ export function PredictionForm({ action, method, lookup, initialValues, submitLa
                     </Field>
                 </div>
 
-                
                 <div className="space-y-2 lg:col-span-2">
                     <Field label="Prediction Type">
-                        <Select
+                        <Input
+                            list="prediction-type-options"
                             value={form.data.prediction_type}
-                            onValueChange={(value) => {
-                                form.setData('prediction_type', value);
-                                form.setData('prediction_value', '');
-                            }}
-                        >
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select prediction market" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {predictionTypes.map((type) => (
-                                    <SelectItem key={type} value={type}>
-                                        {type}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                            onChange={(event) => form.setData('prediction_type', event.target.value)}
+                            placeholder="Search or type prediction market"
+                        />
+                        <datalist id="prediction-type-options">
+                            {predictionTypes.map((type) => (
+                                <option key={type} value={type} />
+                            ))}
+                        </datalist>
                         <p className="text-xs text-muted-foreground">
-                            Prediction type is the market, such as `1X2`, `Double Chance`, or `Both Teams To Score`.
+                            Auto-filled exactly from API-Football when available. You can also search markets from the tips table or type a custom market.
+                        </p>
+                    </Field>
+                    {predictionLookupStatus !== 'idle' && (
+                        <p className="rounded-xl border border-input bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                            {predictionLookupStatus === 'loading' && 'Checking API-Football prediction for this fixture...'}
+                            {predictionLookupStatus === 'filled' && 'API-Football prediction was found and filled. You can still edit it.'}
+                            {predictionLookupStatus === 'empty' && 'No API-Football prediction was available for this fixture. Please choose a tip manually.'}
+                            {predictionLookupStatus === 'error' && 'Could not load API-Football prediction for this fixture. Please choose a tip manually.'}
+                        </p>
+                    )}
+                </div>
+
+                <div className="min-w-full">
+                    <Field label="Prediction Value">
+                        <Input
+                            list="prediction-value-options"
+                            value={form.data.prediction_value}
+                            onChange={(event) => updatePredictionValue(event.target.value)}
+                            placeholder="Search or type betting tip"
+                        />
+                        <datalist id="prediction-value-options">
+                            {predictionValueOptions.map((tip) => (
+                                <option key={`${tip.prediction_type}-${tip.value}`} value={tip.value}>
+                                    {tip.label} ({tip.prediction_type})
+                                </option>
+                            ))}
+                        </datalist>
+                        <p className="text-xs text-muted-foreground">
+                            Pick from the tips table for manual entry, or keep the exact API-Football value that was auto-filled.
                         </p>
                     </Field>
                 </div>
-                
-                
-                <div className='min-w-full'>
-                <Field label="Prediction Value">
-                    <Select
-                        value={form.data.prediction_value}
-                        onValueChange={(value) => form.setData('prediction_value', value)}
-                        disabled={!form.data.prediction_type}
-                        
-                    >
-                        <SelectTrigger>
-                            <SelectValue placeholder={form.data.prediction_type ? 'Select betting tip' : 'Select prediction type first'} />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {predictionValueOptions.map((tip) => (
-                                <SelectItem key={`${tip.prediction_type}-${tip.value}`} value={tip.value}>
-                                    {tip.label} ({tip.value})
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                        Prediction value is the exact betting tip inside that market, for example `1`, `X2`, `Yes`, or `Over 2.5`.
-                    </p>
-                </Field>
-                </div>
-                
+
 
                 <div className="space-y-2 lg:col-span-2">
                     <Label>Predicted Score</Label>

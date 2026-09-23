@@ -13,6 +13,9 @@ class Tip extends Model
         'description',
         'sort_order',
         'is_active',
+        'source',
+        'source_id',
+        'raw_label',
     ];
 
     protected function casts(): array

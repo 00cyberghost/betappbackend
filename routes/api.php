@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AppAuthController;
 use App\Http\Controllers\Api\AppContactMessageController;
 use App\Http\Controllers\Api\AppFootballFeedController;
 use App\Http\Controllers\Api\AppInteractionController;
+use App\Http\Controllers\Api\AppMatchFollowController;
 use App\Http\Controllers\Api\AppNotificationController;
 use App\Http\Controllers\Api\AppPredictionController;
 use App\Http\Controllers\Api\AppProfileController;
@@ -30,6 +31,7 @@ Route::prefix('football')->group(function () {
     Route::get('/teams', [FootballLookupController::class, 'teams']);
     Route::get('/fixtures', [FootballLookupController::class, 'fixtures']);
     Route::get('/fixtures/{fixture}', [FootballLookupController::class, 'details']);
+    Route::get('/fixtures/{fixture}/prediction', [FootballLookupController::class, 'prediction']);
     Route::get('/tips', [TipController::class, 'index']);
 });
 
@@ -54,6 +56,10 @@ Route::prefix('app')->group(function () {
         Route::put('/notifications/preferences', [AppNotificationController::class, 'updatePreferences']);
         Route::post('/notifications/device-token', [AppNotificationController::class, 'storeDeviceToken']);
         Route::post('/notifications/read-all', [AppNotificationController::class, 'markAllRead']);
+        Route::get('/matches/follows', [AppMatchFollowController::class, 'index']);
+        Route::get('/matches/{fixture}/follow', [AppMatchFollowController::class, 'show']);
+        Route::post('/matches/{fixture}/follow', [AppMatchFollowController::class, 'store']);
+        Route::delete('/matches/{fixture}/follow', [AppMatchFollowController::class, 'destroy']);
         Route::post('/contact-messages', [AppContactMessageController::class, 'store']);
     });
 });
