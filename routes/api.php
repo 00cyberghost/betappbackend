@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\AppNotificationController;
 use App\Http\Controllers\Api\AppPredictionController;
 use App\Http\Controllers\Api\AppProfileController;
 use App\Http\Controllers\Api\AppMatchHighlightController;
+use App\Http\Controllers\Api\AppVersionController;
 use App\Http\Controllers\Api\TipController;
 use Illuminate\Support\Facades\Route;
 
@@ -24,6 +25,7 @@ Route::get('/app/competitions/{league}', [AppFootballFeedController::class, 'com
 Route::get('/app/updates', [AppFootballFeedController::class, 'updates']);
 Route::get('/app/updates/{update}', [AppFootballFeedController::class, 'updateDetail']);
 Route::get('/app/match-highlights', [AppMatchHighlightController::class, 'index']);
+Route::get('/app/version-check', [AppVersionController::class, 'check']);
 
 Route::prefix('football')->group(function () {
     Route::get('/countries', [FootballLookupController::class, 'countries']);

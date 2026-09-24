@@ -45,6 +45,7 @@ export default function PopularLeaguesIndex({
 }) {
     const { flash } = usePage<{ flash?: { success?: string; error?: string } }>().props;
     const [syncing, setSyncing] = useState(false);
+    const [syncingFallback, setSyncingFallback] = useState(false);
 
     const runManualSync = () => {
         setSyncing(true);
@@ -55,6 +56,19 @@ export default function PopularLeaguesIndex({
             {
                 preserveScroll: true,
                 onFinish: () => setSyncing(false),
+            },
+        );
+    };
+
+    const runFallbackSync = () => {
+        setSyncingFallback(true);
+
+        router.post(
+            '/dashboard/popular-leagues/sync-fallback-matches',
+            {},
+            {
+                preserveScroll: true,
+                onFinish: () => setSyncingFallback(false),
             },
         );
     };
@@ -71,10 +85,16 @@ export default function PopularLeaguesIndex({
                             Choose the leagues used by the daily API-Football AI prediction sync. Active leagues are synced for today and the next two days.
                         </p>
                     </div>
-                    <Button type="button" onClick={runManualSync} disabled={syncing}>
-                        {syncing ? <Loader2 className="mr-2 size-4 animate-spin" /> : <RefreshCw className="mr-2 size-4" />}
-                        {syncing ? 'Syncing data...' : 'Sync football data'}
-                    </Button>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                        <Button type="button" onClick={runManualSync} disabled={syncing || syncingFallback}>
+                            {syncing ? <Loader2 className="mr-2 size-4 animate-spin" /> : <RefreshCw className="mr-2 size-4" />}
+                            {syncing ? 'Syncing data...' : 'Sync football data'}
+                        </Button>
+                        <Button type="button" variant="outline" onClick={runFallbackSync} disabled={syncing || syncingFallback}>
+                            {syncingFallback ? <Loader2 className="mr-2 size-4 animate-spin" /> : <RefreshCw className="mr-2 size-4" />}
+                            {syncingFallback ? 'Queueing fallback...' : 'Fill homepage fallback'}
+                        </Button>
+                    </div>
                 </div>
 
                 {flash?.success && (

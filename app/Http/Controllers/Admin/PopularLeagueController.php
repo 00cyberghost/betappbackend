@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SyncFallbackMatchesJob;
 use App\Jobs\SyncFootballDataJob;
 use App\Models\PopularLeague;
 use App\Services\ApiFootballService;
@@ -86,6 +87,21 @@ class PopularLeagueController extends Controller
 
             return redirect('/dashboard/popular-leagues')
                 ->with('error', 'Football data sync could not be queued: '.$exception->getMessage());
+        }
+    }
+
+    public function syncFallbackMatches(): RedirectResponse
+    {
+        try {
+            SyncFallbackMatchesJob::dispatchAfterResponse(50);
+
+            return redirect('/dashboard/popular-leagues')
+                ->with('success', 'Fallback match sync has been queued. It will inspect up to 50 broad API-Football fixtures in the background.');
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return redirect('/dashboard/popular-leagues')
+                ->with('error', 'Fallback match sync could not be queued: '.$exception->getMessage());
         }
     }
 

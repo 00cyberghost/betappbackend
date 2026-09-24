@@ -14,6 +14,7 @@ class FootballDataSyncService
     public function __construct(
         protected ApiFootballService $apiFootballService,
         protected FootballSnapshotService $snapshotService,
+        protected CompetitionDirectoryService $competitionDirectoryService,
     ) {
     }
 
@@ -24,6 +25,7 @@ class FootballDataSyncService
         $aiPredictions = $this->attempt(fn () => $this->syncAiPredictions());
         $countries = $this->attempt(fn () => $this->syncCountries());
         $metadata = $this->attempt(fn () => $this->syncPredictionMetadata());
+        $competitionDirectory = $this->attempt(fn () => $this->syncCompetitionDirectory());
 
         return [
             'competitions' => $competitions,
@@ -31,6 +33,7 @@ class FootballDataSyncService
             'ai_predictions' => $aiPredictions,
             'countries' => $countries,
             'metadata' => $metadata,
+            'competition_directory' => $competitionDirectory,
         ];
     }
 
@@ -86,6 +89,13 @@ class FootballDataSyncService
         }
 
         return $items->count();
+    }
+
+    public function syncCompetitionDirectory(): int
+    {
+        $payload = $this->competitionDirectoryService->refresh();
+
+        return count($payload['data'] ?? []);
     }
 
     public function syncPredictionMetadata(): int
@@ -165,6 +175,47 @@ class FootballDataSyncService
         return $created;
     }
 
+    public function syncFallbackMatches(int $limit = 50): int
+    {
+        $admin = User::query()->where('email', 'ozorclinton@gmail.com')->first();
+
+        if (! $admin) {
+            return 0;
+        }
+
+        $fixtures = $this->fallbackFixtures($limit);
+        $created = 0;
+
+        foreach ($fixtures as $fixture) {
+            try {
+                $fixtureId = $fixture['fixture']['id'] ?? null;
+
+                if (! $fixtureId) {
+                    continue;
+                }
+
+                $predictionPayload = collect($this->apiFootballService->fixturePrediction($fixtureId)['response'] ?? [])->first();
+
+                if (! $this->hasUsefulPrediction($predictionPayload)) {
+                    continue;
+                }
+
+                $mapped = $this->mapAiPrediction($fixture, $predictionPayload);
+
+                if ($mapped['prediction_value'] === '0') {
+                    continue;
+                }
+
+                $this->saveSyncedPrediction($fixtureId, $mapped, $admin->id, 'ai_prediction');
+                $created++;
+            } catch (\Throwable) {
+                continue;
+            }
+        }
+
+        return $created;
+    }
+
     protected function pruneCurrentDayUpcomingMatches(): void
     {
         Prediction::query()
@@ -228,6 +279,31 @@ class FootballDataSyncService
             })
             ->unique(fn (array $fixture) => $fixture['fixture']['id'] ?? null)
             ->filter(fn (array $fixture) => ! empty($fixture['fixture']['id']))
+            ->values();
+    }
+
+    protected function fallbackFixtures(int $limit): Collection
+    {
+        $dates = collect(range(0, 2))
+            ->map(fn (int $offset) => now('Africa/Lagos')->addDays($offset)->toDateString());
+
+        return $dates
+            ->flatMap(function (string $date) {
+                try {
+                    $payload = $this->apiFootballService->fixtures([
+                        'date' => $date,
+                        'timezone' => 'Africa/Lagos',
+                    ]);
+                } catch (\Throwable) {
+                    return [];
+                }
+
+                return $payload['response'] ?? [];
+            })
+            ->unique(fn (array $fixture) => $fixture['fixture']['id'] ?? null)
+            ->filter(fn (array $fixture) => ! empty($fixture['fixture']['id']))
+            ->sortBy(fn (array $fixture) => $fixture['fixture']['date'] ?? '')
+            ->take(max(1, min(50, $limit)))
             ->values();
     }
 

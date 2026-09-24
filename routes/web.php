@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\AppVersionSettingController;
 use App\Http\Controllers\Admin\ContactMessageController;
 use App\Http\Controllers\Admin\MatchHighlightController;
 use App\Http\Controllers\Admin\NotificationController;
@@ -28,8 +29,11 @@ Route::middleware(['auth', 'verified', 'admin'])->group(function () {
     Route::get('dashboard/match-highlights', [MatchHighlightController::class, 'index']);
     Route::post('dashboard/match-highlights', [MatchHighlightController::class, 'store']);
     Route::delete('dashboard/match-highlights/{matchHighlight}', [MatchHighlightController::class, 'destroy']);
+    Route::get('dashboard/app-versions', [AppVersionSettingController::class, 'index']);
+    Route::put('dashboard/app-versions/{appVersionSetting}', [AppVersionSettingController::class, 'update']);
     Route::get('dashboard/popular-leagues', [PopularLeagueController::class, 'index']);
     Route::post('dashboard/popular-leagues/sync-data', [PopularLeagueController::class, 'syncData']);
+    Route::post('dashboard/popular-leagues/sync-fallback-matches', [PopularLeagueController::class, 'syncFallbackMatches']);
     Route::post('dashboard/popular-leagues', [PopularLeagueController::class, 'store']);
     Route::put('dashboard/popular-leagues/{popularLeague}', [PopularLeagueController::class, 'update']);
     Route::delete('dashboard/popular-leagues/{popularLeague}', [PopularLeagueController::class, 'destroy']);

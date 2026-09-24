@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Country;
 use App\Services\ApiFootballService;
+use App\Services\CompetitionDirectoryService;
 use App\Services\FootballSnapshotService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -99,23 +100,9 @@ class AppFootballFeedController extends Controller
         ]);
     }
 
-    public function competitions(ApiFootballService $apiFootballService, FootballSnapshotService $snapshotService): JsonResponse
+    public function competitions(CompetitionDirectoryService $competitionDirectoryService): JsonResponse
     {
-        $payload = $apiFootballService->leagues();
-        $items = collect($payload['response'] ?? [])
-            ->map(fn (array $league) => $this->mapCompetition($league))
-            ->filter(fn (array $item) => $item['id'] && $item['name'])
-            ->filter(fn (array $item) => $this->isCurrentOrFutureCompetition($item))
-            ->values();
-
-        $topLeagues = $this->topLeagues($apiFootballService, $items);
-
-        return response()->json([
-            'data' => $items,
-            'top_leagues' => $topLeagues,
-            'countries' => $this->competitionCountries($items),
-            'latest_matches' => $this->latestLeagueMatches($apiFootballService, $topLeagues),
-        ]);
+        return response()->json($competitionDirectoryService->get());
     }
 
     public function competitionDetail(int $league, Request $request, ApiFootballService $apiFootballService): JsonResponse
@@ -203,156 +190,6 @@ class AppFootballFeedController extends Controller
     protected function updatesCollection(ApiFootballService $apiFootballService): array
     {
         return $apiFootballService->footballUpdates($apiFootballService->resolveTeamIdsForHighlights());
-    }
-
-    protected function mapCompetition(array $league): array
-    {
-        $season = $this->currentOrFutureSeason($league['seasons'] ?? []);
-
-        return [
-            'id' => $league['league']['id'] ?? null,
-            'name' => $league['league']['name'] ?? null,
-            'type' => $league['league']['type'] ?? null,
-            'logo' => $league['league']['logo'] ?? null,
-            'country' => $league['country']['name'] ?? null,
-            'flag' => $league['country']['flag'] ?? null,
-            'season' => $season,
-        ];
-    }
-
-    protected function topLeagues(ApiFootballService $apiFootballService, $items)
-    {
-        $topIds = $this->topLeagueIds();
-
-        $byId = $items->keyBy('id');
-
-        return collect($topIds)
-            ->map(function (int $id) use ($apiFootballService, $byId) {
-                $league = $byId->get($id);
-
-                if ($league) {
-                    return $league;
-                }
-
-                try {
-                    $payload = $apiFootballService->leagueById($id);
-
-                    return collect($payload['response'] ?? [])
-                        ->map(fn (array $item) => $this->mapCompetition($item))
-                        ->first();
-                } catch (\Throwable) {
-                    return null;
-                }
-            })
-            ->filter()
-            ->filter(fn (array $item) => $this->isCurrentOrFutureCompetition($item))
-            ->values();
-    }
-
-    protected function competitionCountries($items)
-    {
-        $leagueCounts = $items
-            ->filter(fn (array $item) => ! empty($item['country']))
-            ->groupBy(fn (array $item) => $item['country'])
-            ->map(fn ($leagues) => $leagues->count());
-
-        return Country::query()
-            ->orderBy('name')
-            ->get(['name', 'flag'])
-            ->map(fn (Country $country) => [
-                'name' => $country->name,
-                'flag' => $country->flag,
-                'leagues_count' => $leagueCounts->get($country->name, 0),
-            ])
-            ->sortBy('name')
-            ->values();
-    }
-
-    protected function latestLeagueMatches(ApiFootballService $apiFootballService, $topLeagues): array
-    {
-        $today = now('Africa/Lagos')->toDateString();
-        $futureLimit = now('Africa/Lagos')->addDays(2)->toDateString();
-
-        return $topLeagues
-            ->flatMap(function (array $league) use ($apiFootballService, $today, $futureLimit) {
-                if (empty($league['id']) || empty($league['season'])) {
-                    return [];
-                }
-
-                try {
-                    $payload = $apiFootballService->fixtures([
-                        'league' => $league['id'],
-                        'season' => $league['season'],
-                        'from' => $today,
-                        'to' => $futureLimit,
-                        'timezone' => 'Africa/Lagos',
-                    ]);
-                } catch (\Throwable) {
-                    return [];
-                }
-
-                return collect($payload['response'] ?? [])->map(function (array $fixture) use ($league) {
-                    return [
-                        'id' => $fixture['fixture']['id'] ?? null,
-                        'league_id' => $league['id'],
-                        'league_name' => $league['name'],
-                        'league_logo' => $league['logo'] ?: ($league['flag'] ?? null),
-                        'country' => $league['country'],
-                        'flag' => $league['flag'] ?? null,
-                        'season' => $league['season'],
-                        'date' => $fixture['fixture']['date'] ?? null,
-                        'status' => $fixture['fixture']['status']['short'] ?? null,
-                        'home_team' => $fixture['teams']['home']['name'] ?? 'Home',
-                        'away_team' => $fixture['teams']['away']['name'] ?? 'Away',
-                        'home_logo' => $fixture['teams']['home']['logo'] ?? null,
-                        'away_logo' => $fixture['teams']['away']['logo'] ?? null,
-                        'home_score' => $fixture['goals']['home'] ?? null,
-                        'away_score' => $fixture['goals']['away'] ?? null,
-                    ];
-                });
-            })
-            ->filter(fn (array $item) => $item['id'])
-            ->filter(function (array $item) use ($today, $futureLimit) {
-                if (empty($item['date'])) {
-                    return false;
-                }
-
-                $date = substr((string) $item['date'], 0, 10);
-
-                return $date >= $today && $date <= $futureLimit;
-            })
-            ->sortBy('date')
-            ->take(20)
-            ->values()
-            ->all();
-    }
-
-    protected function topLeagueIds(): array
-    {
-        return [39, 2, 3, 848, 140, 135, 78, 61, 253, 71, 307, 128, 262, 94, 203];
-    }
-
-    protected function currentOrFutureSeason(array $seasons): ?int
-    {
-        $current = collect($seasons)->firstWhere('current', true);
-
-        if (! empty($current['year'])) {
-            return (int) $current['year'];
-        }
-
-        $currentYear = (int) now('Africa/Lagos')->year;
-
-        return collect($seasons)
-            ->pluck('year')
-            ->filter(fn ($year) => is_numeric($year) && (int) $year >= $currentYear)
-            ->sort()
-            ->map(fn ($year) => (int) $year)
-            ->first();
-    }
-
-    protected function isCurrentOrFutureCompetition(array $item): bool
-    {
-        return ! empty($item['season']) && (int) $item['season'] >= (int) now('Africa/Lagos')->year;
     }
 
     protected function normalizeCountryName(?string $countryName): string
