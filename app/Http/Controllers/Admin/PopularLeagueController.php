@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SyncFootballDataJob;
 use App\Models\PopularLeague;
 use App\Services\ApiFootballService;
 use Illuminate\Http\RedirectResponse;
@@ -71,6 +72,21 @@ class PopularLeagueController extends Controller
         );
 
         return redirect('/dashboard/popular-leagues')->with('success', 'Popular league saved.');
+    }
+
+    public function syncData(): RedirectResponse
+    {
+        try {
+            SyncFootballDataJob::dispatchAfterResponse();
+
+            return redirect('/dashboard/popular-leagues')
+                ->with('success', 'Football data sync has been queued and will run in the background.');
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return redirect('/dashboard/popular-leagues')
+                ->with('error', 'Football data sync could not be queued: '.$exception->getMessage());
+        }
     }
 
     public function update(Request $request, PopularLeague $popularLeague): RedirectResponse

@@ -29,6 +29,7 @@ Route::middleware(['auth', 'verified', 'admin'])->group(function () {
     Route::post('dashboard/match-highlights', [MatchHighlightController::class, 'store']);
     Route::delete('dashboard/match-highlights/{matchHighlight}', [MatchHighlightController::class, 'destroy']);
     Route::get('dashboard/popular-leagues', [PopularLeagueController::class, 'index']);
+    Route::post('dashboard/popular-leagues/sync-data', [PopularLeagueController::class, 'syncData']);
     Route::post('dashboard/popular-leagues', [PopularLeagueController::class, 'store']);
     Route::put('dashboard/popular-leagues/{popularLeague}', [PopularLeagueController::class, 'update']);
     Route::delete('dashboard/popular-leagues/{popularLeague}', [PopularLeagueController::class, 'destroy']);

@@ -13,7 +13,18 @@ class AppMatchFollowController extends Controller
     {
         $items = UserFollowedMatch::query()
             ->where('user_id', $request->user()->id)
-            ->get(['fixture_id', 'topic', 'home_team_name', 'away_team_name', 'status_short'])
+            ->latest()
+            ->get([
+                'fixture_id',
+                'topic',
+                'home_team_name',
+                'away_team_name',
+                'home_score',
+                'away_score',
+                'status_short',
+                'last_checked_at',
+                'created_at',
+            ])
             ->values();
 
         return response()->json(['data' => $items]);

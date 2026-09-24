@@ -1,5 +1,6 @@
 import { Head, router, useForm, usePage } from '@inertiajs/react';
-import { Plus, Save, Search, Trash2 } from 'lucide-react';
+import { Loader2, Plus, RefreshCw, Save, Search, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -42,23 +43,49 @@ export default function PopularLeaguesIndex({
     filters: { search: string };
     results: LeagueResult[];
 }) {
-    const { flash } = usePage<{ flash?: { success?: string } }>().props;
+    const { flash } = usePage<{ flash?: { success?: string; error?: string } }>().props;
+    const [syncing, setSyncing] = useState(false);
+
+    const runManualSync = () => {
+        setSyncing(true);
+
+        router.post(
+            '/dashboard/popular-leagues/sync-data',
+            {},
+            {
+                preserveScroll: true,
+                onFinish: () => setSyncing(false),
+            },
+        );
+    };
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Popular Leagues" />
 
             <div className="space-y-6 p-4">
-                <div>
-                    <h1 className="text-2xl font-semibold">Popular Leagues</h1>
-                    <p className="text-sm text-muted-foreground">
-                        Choose the leagues used by the daily API-Football AI prediction sync. Active leagues are synced for today and the next two days.
-                    </p>
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                        <h1 className="text-2xl font-semibold">Popular Leagues</h1>
+                        <p className="text-sm text-muted-foreground">
+                            Choose the leagues used by the daily API-Football AI prediction sync. Active leagues are synced for today and the next two days.
+                        </p>
+                    </div>
+                    <Button type="button" onClick={runManualSync} disabled={syncing}>
+                        {syncing ? <Loader2 className="mr-2 size-4 animate-spin" /> : <RefreshCw className="mr-2 size-4" />}
+                        {syncing ? 'Syncing data...' : 'Sync football data'}
+                    </Button>
                 </div>
 
                 {flash?.success && (
                     <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
                         {flash.success}
+                    </div>
+                )}
+
+                {flash?.error && (
+                    <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                        {flash.error}
                     </div>
                 )}
 
