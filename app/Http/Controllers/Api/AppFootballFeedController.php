@@ -115,14 +115,14 @@ class AppFootballFeedController extends Controller
         $resultsPayload = $apiFootballService->fixtures(array_filter([
             'league' => $league,
             'season' => $season,
-            'last' => 10,
+            'last' => 20,
             'timezone' => $request->string('timezone')->toString() ?: null,
         ]));
 
         $fixturesPayload = $apiFootballService->fixtures(array_filter([
             'league' => $league,
             'season' => $season,
-            'next' => 10,
+            'next' => 20,
             'timezone' => $request->string('timezone')->toString() ?: null,
         ]));
 
