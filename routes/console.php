@@ -18,5 +18,5 @@ Artisan::command('football:sync-now', function (FootballDataSyncService $footbal
     );
 })->purpose('Run football snapshot and AI prediction sync immediately.');
 
-Schedule::command('football:sync-data')->dailyAt('03:00')->timezone('Africa/Lagos');
+Schedule::command('football:sync-data')->daily()->withoutOverlapping();
 Schedule::command('football:cleanup-followed-matches')->everyTwoMinutes()->timezone('Africa/Lagos');
