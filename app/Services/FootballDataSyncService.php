@@ -154,19 +154,7 @@ class FootballDataSyncService
                     continue;
                 }
 
-                $mapped = $this->mapAiPrediction($fixture, $predictionPayload);
-
-                if ($mapped['prediction_value'] === '0') {
-                    continue;
-                }
-
-                $this->saveSyncedPrediction($fixtureId, $mapped, $admin->id, 'ai_prediction');
-                $created++;
-
-                if (Carbon::parse($mapped['match_starts_at'], 'Africa/Lagos')->isAfter(now('Africa/Lagos')->endOfDay())) {
-                    $this->saveSyncedPrediction($fixtureId, $mapped, $admin->id, 'upcoming_matches');
-                    $created++;
-                }
+                $created += $this->saveFixturePredictionForDateBucket($fixtureId, $fixture, $predictionPayload, $admin->id);
             } catch (\Throwable) {
                 continue;
             }
@@ -200,14 +188,7 @@ class FootballDataSyncService
                     continue;
                 }
 
-                $mapped = $this->mapAiPrediction($fixture, $predictionPayload);
-
-                if ($mapped['prediction_value'] === '0') {
-                    continue;
-                }
-
-                $this->saveSyncedPrediction($fixtureId, $mapped, $admin->id, 'ai_prediction');
-                $created++;
+                $created += $this->saveFixturePredictionForDateBucket($fixtureId, $fixture, $predictionPayload, $admin->id);
             } catch (\Throwable) {
                 continue;
             }
@@ -243,6 +224,54 @@ class FootballDataSyncService
                 'published_at' => now(),
             ]
         );
+    }
+
+    protected function saveFixturePredictionForDateBucket(int $fixtureId, array $fixture, array $predictionPayload, int $adminId): int
+    {
+        $kickoff = $this->fixtureKickoff($fixture);
+
+        if (! $kickoff) {
+            $this->deleteSyncedPrediction($fixtureId, 'ai_prediction');
+            $this->deleteSyncedPrediction($fixtureId, 'upcoming_matches');
+
+            return 0;
+        }
+
+        $mapped = $this->mapAiPrediction($fixture, $predictionPayload, $kickoff);
+
+        if ($mapped['prediction_value'] === '0') {
+            return 0;
+        }
+
+        $today = now('Africa/Lagos')->startOfDay();
+
+        if ($kickoff->isSameDay($today)) {
+            $this->saveSyncedPrediction($fixtureId, $mapped, $adminId, 'ai_prediction');
+            $this->deleteSyncedPrediction($fixtureId, 'upcoming_matches');
+
+            return 1;
+        }
+
+        if ($kickoff->isAfter($today->copy()->endOfDay())) {
+            $this->saveSyncedPrediction($fixtureId, $mapped, $adminId, 'upcoming_matches');
+            $this->deleteSyncedPrediction($fixtureId, 'ai_prediction');
+
+            return 1;
+        }
+
+        $this->deleteSyncedPrediction($fixtureId, 'ai_prediction');
+        $this->deleteSyncedPrediction($fixtureId, 'upcoming_matches');
+
+        return 0;
+    }
+
+    protected function deleteSyncedPrediction(int $fixtureId, string $category): void
+    {
+        Prediction::query()
+            ->where('fixture_id', $fixtureId)
+            ->where('source', 'api_football')
+            ->where('category', $category)
+            ->delete();
     }
 
     protected function popularLeagueFixtures(): Collection
@@ -324,7 +353,7 @@ class FootballDataSyncService
         return $winner !== '' || $winnerComment !== '' || $underOver !== '' || ((int) $percent) > 0;
     }
 
-    protected function mapAiPrediction(array $fixture, ?array $prediction): array
+    protected function mapAiPrediction(array $fixture, ?array $prediction, Carbon $kickoff): array
     {
         $countries = $this->countriesByNormalizedName();
         $country = $this->countryFromName($countries, $fixture['league']['country'] ?? null);
@@ -366,7 +395,7 @@ class FootballDataSyncService
             'away_team_id' => $fixture['teams']['away']['id'] ?? null,
             'away_team_name' => str((string) ($fixture['teams']['away']['name'] ?? 'Away'))->limit(255)->toString(),
             'away_team_logo' => $fixture['teams']['away']['logo'] ?? null,
-            'match_starts_at' => Carbon::parse($fixture['fixture']['date'] ?? now()),
+            'match_starts_at' => $kickoff,
             'prediction_type' => $predictionType,
             'prediction_value' => $predictionValue,
             'probability' => $probability ?: null,
@@ -375,6 +404,21 @@ class FootballDataSyncService
             'likes_count' => 0,
             'comments_count' => 0,
         ];
+    }
+
+    protected function fixtureKickoff(array $fixture): ?Carbon
+    {
+        $date = $fixture['fixture']['date'] ?? null;
+
+        if (! is_string($date) || trim($date) === '') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($date)->setTimezone('Africa/Lagos');
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     protected function resolveAiMarket(array $fixture, ?string $winner, ?string $winnerComment, ?string $underOver): array
