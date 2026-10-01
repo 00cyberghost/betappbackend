@@ -196,6 +196,7 @@ class AppAuthController extends Controller
 
     public function logout(Request $request): JsonResponse
     {
+        $request->user()->deviceTokens()->delete();
         $request->user()->forceFill([
             'api_token' => null,
         ])->save();
@@ -249,7 +250,7 @@ class AppAuthController extends Controller
             'avatar_url' => $user->avatar_url,
             'bio' => $user->bio,
             'is_admin' => $user->is_admin,
-            'created_at' => optional($user->created_at)?->toIso8601String(),
+            'joined_at' => optional($user->created_at)?->toDateString(),
         ];
     }
 }
