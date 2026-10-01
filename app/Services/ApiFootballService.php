@@ -75,6 +75,29 @@ class ApiFootballService
         return $this->cached('teams:'.md5(json_encode($params)), 21600, fn () => $this->get('teams', $params));
     }
 
+    public function teamById(int $teamId): array
+    {
+        return $this->cached("team:{$teamId}", 86400, fn () => $this->get('teams', [
+            'id' => $teamId,
+        ]));
+    }
+
+    public function teamStatistics(int $teamId, int $leagueId, int $season): array
+    {
+        return $this->cached("team-statistics:{$teamId}:{$leagueId}:{$season}", 21600, fn () => $this->get('teams/statistics', [
+            'team' => $teamId,
+            'league' => $leagueId,
+            'season' => $season,
+        ]));
+    }
+
+    public function teamSquad(int $teamId): array
+    {
+        return $this->cached("team-squad:{$teamId}", 86400, fn () => $this->get('players/squads', [
+            'team' => $teamId,
+        ]));
+    }
+
     public function fixtures(array $params): array
     {
         ksort($params);

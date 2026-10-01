@@ -13,8 +13,12 @@ class AppMatchHighlightController extends Controller
     {
         $limit = max(1, min(50, $request->integer('limit') ?: 12));
 
-        $items = MatchHighlight::query()
-            ->where('is_published', true)
+        $query = MatchHighlight::query()
+            ->where('is_published', true);
+
+        $total = (clone $query)->count();
+
+        $items = $query
             ->latest('published_at')
             ->latest()
             ->limit($limit)
@@ -30,6 +34,9 @@ class AppMatchHighlightController extends Controller
             ])
             ->values();
 
-        return response()->json(['data' => $items]);
+        return response()->json([
+            'data' => $items,
+            'total' => $total,
+        ]);
     }
 }
