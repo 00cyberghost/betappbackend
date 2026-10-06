@@ -40,30 +40,30 @@ Route::prefix('football')->group(function () {
 });
 
 Route::prefix('app')->group(function () {
-    Route::post('/register', [AppAuthController::class, 'register']);
-    Route::post('/login', [AppAuthController::class, 'login']);
-    Route::post('/auth/google', [AppAuthController::class, 'google']);
-    Route::post('/forgot-password', [AppAuthController::class, 'forgotPassword']);
-    Route::post('/reset-password', [AppAuthController::class, 'resetPassword']);
+    Route::post('/register', [AppAuthController::class, 'register'])->middleware('throttle:8,1');
+    Route::post('/login', [AppAuthController::class, 'login'])->middleware('throttle:10,1');
+    Route::post('/auth/google', [AppAuthController::class, 'google'])->middleware('throttle:10,1');
+    Route::post('/forgot-password', [AppAuthController::class, 'forgotPassword'])->middleware('throttle:5,1');
+    Route::post('/reset-password', [AppAuthController::class, 'resetPassword'])->middleware('throttle:5,1');
 
     Route::middleware('app.auth')->group(function () {
-        Route::post('/logout', [AppAuthController::class, 'logout']);
+        Route::post('/logout', [AppAuthController::class, 'logout'])->middleware('throttle:20,1');
         Route::get('/me', [AppProfileController::class, 'show']);
-        Route::delete('/me', [AppProfileController::class, 'destroy']);
-        Route::put('/profile', [AppProfileController::class, 'update']);
-        Route::post('/predictions', [AppPredictionController::class, 'store']);
-        Route::post('/predictions/{prediction}/like', [AppInteractionController::class, 'toggleLike']);
-        Route::post('/predictions/{prediction}/comment', [AppInteractionController::class, 'comment']);
-        Route::post('/predictions/{prediction}/share', [AppInteractionController::class, 'share']);
+        Route::delete('/me', [AppProfileController::class, 'destroy'])->middleware('throttle:3,1');
+        Route::put('/profile', [AppProfileController::class, 'update'])->middleware('throttle:10,1');
+        Route::post('/predictions', [AppPredictionController::class, 'store'])->middleware('throttle:8,1');
+        Route::post('/predictions/{prediction}/like', [AppInteractionController::class, 'toggleLike'])->middleware('throttle:40,1');
+        Route::post('/predictions/{prediction}/comment', [AppInteractionController::class, 'comment'])->middleware('throttle:12,1');
+        Route::post('/predictions/{prediction}/share', [AppInteractionController::class, 'share'])->middleware('throttle:30,1');
         Route::get('/notifications', [AppNotificationController::class, 'index']);
         Route::get('/notifications/preferences', [AppNotificationController::class, 'preferences']);
-        Route::put('/notifications/preferences', [AppNotificationController::class, 'updatePreferences']);
-        Route::post('/notifications/device-token', [AppNotificationController::class, 'storeDeviceToken']);
-        Route::post('/notifications/read-all', [AppNotificationController::class, 'markAllRead']);
+        Route::put('/notifications/preferences', [AppNotificationController::class, 'updatePreferences'])->middleware('throttle:15,1');
+        Route::post('/notifications/device-token', [AppNotificationController::class, 'storeDeviceToken'])->middleware('throttle:20,1');
+        Route::post('/notifications/read-all', [AppNotificationController::class, 'markAllRead'])->middleware('throttle:30,1');
         Route::get('/matches/follows', [AppMatchFollowController::class, 'index']);
         Route::get('/matches/{fixture}/follow', [AppMatchFollowController::class, 'show']);
-        Route::post('/matches/{fixture}/follow', [AppMatchFollowController::class, 'store']);
-        Route::delete('/matches/{fixture}/follow', [AppMatchFollowController::class, 'destroy']);
-        Route::post('/contact-messages', [AppContactMessageController::class, 'store']);
+        Route::post('/matches/{fixture}/follow', [AppMatchFollowController::class, 'store'])->middleware('throttle:30,1');
+        Route::delete('/matches/{fixture}/follow', [AppMatchFollowController::class, 'destroy'])->middleware('throttle:30,1');
+        Route::post('/contact-messages', [AppContactMessageController::class, 'store'])->middleware('throttle:5,1');
     });
 });

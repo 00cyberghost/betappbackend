@@ -2,10 +2,11 @@
 
 namespace App\Services;
 
+use App\Exceptions\FootballDataUnavailableException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
-use RuntimeException;
+use Illuminate\Support\Facades\Log;
 
 class ApiFootballService
 {
@@ -308,19 +309,38 @@ class ApiFootballService
     protected function get(string $endpoint, array $query = []): array
     {
         $response = $this->request()
-            ->get($endpoint, $query)
-            ->throw()
-            ->json();
+            ->get($endpoint, $query);
 
-        if (! empty($response['errors'])) {
-            $message = is_array($response['errors'])
-                ? implode(' ', array_values($response['errors']))
-                : (string) $response['errors'];
+        $payload = $response->json();
 
-            throw new RuntimeException($message ?: 'API-Football request failed.');
+        if ($response->failed()) {
+            $this->failProviderRequest(
+                endpoint: $endpoint,
+                query: $query,
+                status: $response->status(),
+                payload: is_array($payload) ? $payload : $response->body(),
+            );
         }
 
-        return $response;
+        if (! is_array($payload)) {
+            $this->failProviderRequest(
+                endpoint: $endpoint,
+                query: $query,
+                status: $response->status(),
+                payload: $response->body(),
+            );
+        }
+
+        if (! empty($payload['errors'])) {
+            $this->failProviderRequest(
+                endpoint: $endpoint,
+                query: $query,
+                status: $response->status(),
+                payload: $payload,
+            );
+        }
+
+        return $payload;
     }
 
     protected function request(): PendingRequest
@@ -328,7 +348,9 @@ class ApiFootballService
         $apiKey = (string) config('services.api_football.key');
 
         if ($apiKey === '') {
-            throw new RuntimeException('API_FOOTBALL_KEY is not configured.');
+            Log::error('API-Football key is not configured.');
+
+            throw new FootballDataUnavailableException();
         }
 
         return Http::baseUrl((string) config('services.api_football.base_url'))
@@ -343,5 +365,42 @@ class ApiFootballService
     protected function cached(string $key, int $seconds, callable $callback): array
     {
         return Cache::remember("api-football:{$key}", $seconds, $callback);
+    }
+
+    protected function failProviderRequest(string $endpoint, array $query, int $status, mixed $payload): never
+    {
+        Log::warning('API-Football request failed and was hidden from client.', [
+            'endpoint' => $endpoint,
+            'query' => $query,
+            'status' => $status,
+            'provider_errors' => $this->providerErrors($payload),
+            'payload_preview' => $this->payloadPreview($payload),
+        ]);
+
+        throw new FootballDataUnavailableException();
+    }
+
+    protected function providerErrors(mixed $payload): ?string
+    {
+        if (! is_array($payload) || empty($payload['errors'])) {
+            return null;
+        }
+
+        return collect($payload['errors'])
+            ->flatten()
+            ->filter(fn ($value) => is_scalar($value) && trim((string) $value) !== '')
+            ->map(fn ($value) => trim((string) $value))
+            ->implode(' ');
+    }
+
+    protected function payloadPreview(mixed $payload): ?string
+    {
+        $preview = is_string($payload) ? $payload : json_encode($payload);
+
+        if (! is_string($preview) || trim($preview) === '') {
+            return null;
+        }
+
+        return mb_substr($preview, 0, 500);
     }
 }

@@ -1,5 +1,6 @@
 <?php
 
+use App\Exceptions\FootballDataUnavailableException;
 use App\Http\Middleware\AuthenticateAppApiToken;
 use App\Http\Middleware\EnsureUserIsAdmin;
 use App\Http\Middleware\HandleAppearance;
@@ -7,6 +8,7 @@ use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -30,5 +32,13 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        $exceptions->render(function (FootballDataUnavailableException $exception, Request $request) {
+            if ($request->expectsJson() || $request->is('api/*')) {
+                return response()->json([
+                    'message' => $exception->getMessage(),
+                ], 503);
+            }
+
+            return back()->with('error', $exception->getMessage());
+        });
     })->create();
