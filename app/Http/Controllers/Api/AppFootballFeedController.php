@@ -12,9 +12,17 @@ use Illuminate\Http\Request;
 
 class AppFootballFeedController extends Controller
 {
+    private const LEGACY_LIVE_TAB_LIMIT = 20;
+
+    private const MAX_LIVE_FEED_LIMIT = 100;
+
     public function live(Request $request, ApiFootballService $apiFootballService): JsonResponse
     {
-        $limit = max(1, min(20, $request->integer('limit') ?: 20));
+        $requestedLimit = $request->integer('limit');
+
+        $limit = $requestedLimit === self::LEGACY_LIVE_TAB_LIMIT
+            ? null
+            : max(1, min(self::MAX_LIVE_FEED_LIMIT, $requestedLimit ?: self::MAX_LIVE_FEED_LIMIT));
         $payload = $apiFootballService->freshFixtures(array_filter([
             'live' => 'all',
             'league' => $request->integer('league') ?: null,
@@ -51,7 +59,7 @@ class AppFootballFeedController extends Controller
             ];
         })
             ->filter(fn (array $item) => $item['id'])
-            ->take($limit)
+            ->when($limit !== null, fn ($items) => $items->take($limit))
             ->values();
 
         return response()->json([
