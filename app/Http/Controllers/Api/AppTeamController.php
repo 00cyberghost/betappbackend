@@ -21,25 +21,62 @@ class AppTeamController extends Controller
         $season = $request->integer('season');
         $timezone = $request->string('timezone')->toString() ?: 'Africa/Lagos';
 
+        $recentFixtures = $this->safe(fn () => $this->fixturesPayload($apiFootballService->fixtures([
+            'team' => $team,
+            'last' => 5,
+            'timezone' => $timezone,
+        ])['response'] ?? []), []);
+
+        $upcomingFixtures = $this->safe(fn () => $this->fixturesPayload($apiFootballService->fixtures([
+            'team' => $team,
+            'next' => 5,
+            'timezone' => $timezone,
+        ])['response'] ?? []), []);
+
+        $statisticsContext = $this->resolveStatisticsContext(
+            $leagueId,
+            $season,
+            [...$upcomingFixtures, ...$recentFixtures],
+        );
+
         return response()->json([
             'data' => [
                 'team' => $this->teamPayload($profile),
-                'statistics' => $leagueId && $season
-                    ? $this->safe(fn () => $this->statisticsPayload($apiFootballService->teamStatistics($team, $leagueId, $season)['response'] ?? []), [])
+                'statistics' => $statisticsContext['league'] && $statisticsContext['season']
+                    ? $this->safe(fn () => $this->statisticsPayload($apiFootballService->teamStatistics($team, $statisticsContext['league'], $statisticsContext['season'])['response'] ?? []), [])
                     : [],
                 'squad' => $this->safe(fn () => $this->squadPayload($apiFootballService->teamSquad($team)['response'] ?? []), []),
-                'recent_fixtures' => $this->safe(fn () => $this->fixturesPayload($apiFootballService->fixtures([
-                    'team' => $team,
-                    'last' => 5,
-                    'timezone' => $timezone,
-                ])['response'] ?? []), []),
-                'upcoming_fixtures' => $this->safe(fn () => $this->fixturesPayload($apiFootballService->fixtures([
-                    'team' => $team,
-                    'next' => 5,
-                    'timezone' => $timezone,
-                ])['response'] ?? []), []),
+                'recent_fixtures' => $recentFixtures,
+                'upcoming_fixtures' => $upcomingFixtures,
             ],
         ]);
+    }
+
+    protected function resolveStatisticsContext(?int $leagueId, ?int $season, array $fixtures): array
+    {
+        if ($leagueId) {
+            return [
+                'league' => $leagueId,
+                'season' => $season ?: (int) now('Africa/Lagos')->year,
+            ];
+        }
+
+        foreach ($fixtures as $fixture) {
+            $fixtureLeagueId = $fixture['league']['id'] ?? null;
+            $fixtureSeason = $fixture['league']['season'] ?? null;
+
+            if ($fixtureLeagueId && $fixtureSeason) {
+                return [
+                    'league' => (int) $fixtureLeagueId,
+                    'season' => (int) $fixtureSeason,
+                ];
+            }
+        }
+
+        return [
+            'league' => null,
+            'season' => null,
+        ];
     }
 
     protected function teamPayload(array $profile): array
